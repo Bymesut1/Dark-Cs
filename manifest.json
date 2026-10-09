@@ -1,20 +1,27 @@
 {
-  "name": "Dark-Cs Eklenti Deposu",
-  "description": "ok.ru video arama, Türkçe dublaj ve TMDB entegrasyonu.",
+  "name": "Dark-Cs",
   "version": "1.0.0",
-  "author": "Bymesut1",
-  "providers": [
+  "scrapers": [
     {
-      "name": "ok.ru TR",
       "id": "okru",
+      "name": "ok.ru",
+      "description": "ok.ru video arama (Türkçe sesli / Türkçe adlı filmler)",
       "version": "1.0.0",
-      "script": "providers/ok.ru.js",
-      "path": "providers/ok.ru.js",
-      "url": "providers/ok.ru.js",
-      "file": "providers/ok.ru.js",
-      "type": "movie",
-      "language": "tr",
-      "status": 1
+      "author": "Bymesut1",
+      "supportedTypes": [
+        "movie"
+      ],
+      "filename": "providers/ok.ru.js",
+      "enabled": true,
+      "hasSettings": false,
+      "formats": [
+        "mp4"
+      ],
+      "contentLanguage": [
+        "tr"
+      ],
+      "limited": false,
+      "disabledPlatforms": []
     }
   ]
 }
