@@ -1,13 +1,16 @@
 {
+  "name": "wfilmizle Deposu",
+  "description": "wfilmizle.cam CloudStream Eklentisi",
+  "manifestVersion": 1,
   "plugins": [
     {
       "name": "wfilmizle",
-      "url": "https://raw.githubusercontent.com/Bymesut1/Dark-Cs/main/providers/wfilmizle.js",
-      "author": "Bymesut1",
       "description": "wfilmizle.cam Türkçe dublaj/altyazı filmler",
+      "url": "https://raw.githubusercontent.com/Bymesut1/Dark-Cs/main/providers/wfilmizle.js",
       "version": 1,
       "tvTypes": ["Movie"],
-      "lang": "tr"
+      "lang": "tr",
+      "authors": ["Bymesut1"]
     }
   ]
 }
