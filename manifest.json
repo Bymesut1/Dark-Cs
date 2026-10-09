@@ -1,15 +1,13 @@
 {
-  "name": "wfilmizle",
-  "version": "1.0.2",
-  "scrapers": [
+  "plugins": [
     {
-      "id": "wfilmizle",
       "name": "wfilmizle",
+      "url": "https://raw.githubusercontent.com/Bymesut1/Dark-Cs/main/providers/wfilmizle.js",
+      "author": "Bymesut1",
       "description": "wfilmizle.cam Türkçe dublaj/altyazı filmler",
-      "version": "1.0.2",
-      "filename": "providers/wfilmizle.js",
-      "supportedTypes": ["movie"],
-      "enabled": true
+      "version": 1,
+      "tvTypes": ["Movie"],
+      "lang": "tr"
     }
   ]
 }
