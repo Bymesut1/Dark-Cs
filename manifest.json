@@ -1,16 +1,14 @@
 {
-  "id": "ru.ok.tmdb.provider",
+  "name": "ok.ru Plugin",
   "version": "1.0.0",
-  "name": "ok.ru TR (TMDB)",
-  "description": "ok.ru video arama, Türkçe dublaj, TMDB entegrasyonu ve baglanfilmizle kanal önceliklendirmesi.",
-  "resources": [
-    "stream"
-  ],
-  "types": [
-    "movie"
-  ],
-  "idPrefixes": [
-    "tt"
-  ],
-  "catalogs": []
+  "description": "ok.ru video arama, Türkçe dublaj ve TMDB entegrasyonu.",
+  "plugins": [
+    {
+      "name": "ok.ru TR",
+      "id": "okru",
+      "version": "1.0.0",
+      "url": "index.js",
+      "site": "https://ok.ru"
+    }
+  ]
 }
