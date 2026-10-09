@@ -1,10 +1,10 @@
-// ok.ru Nuvio Provider (abifilm0 & mailru mimarisiyle)
+// ok.ru Nuvio Scraper Provider
 var TMDB_KEY = '000316508321ce461cf81e7c6815eec7';
 var UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36';
 var HEADERS = { 'User-Agent': UA, 'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8' };
 
 var AYAR = {
-  EKLENTI_ADI: 'ok.ru TR',
+  EKLENTI_ADI: 'ok.ru',
   PROVIDER_ID: 'okru',
   MAX_ADAY: 8,
   MAX_SORGU: 18,
