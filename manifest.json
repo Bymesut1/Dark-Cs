@@ -1,27 +1,15 @@
 {
-  "name": "Dark-Cs",
+  "name": "okru",
   "version": "1.0.0",
   "scrapers": [
     {
       "id": "okru",
       "name": "ok.ru",
-      "description": "ok.ru video arama (Türkçe sesli / Türkçe adlı filmler)",
+      "description": "ok.ru videoları, sadece Türkçe ses (TR / Türkçe Dublaj)",
       "version": "1.0.0",
-      "author": "Bymesut1",
-      "supportedTypes": [
-        "movie"
-      ],
-      "filename": "providers/ok.ru.js",
-      "enabled": true,
-      "hasSettings": false,
-      "formats": [
-        "mp4"
-      ],
-      "contentLanguage": [
-        "tr"
-      ],
-      "limited": false,
-      "disabledPlatforms": []
+      "filename": "providers/okru.js",
+      "supportedTypes": ["movie"],
+      "enabled": true
     }
   ]
 }
