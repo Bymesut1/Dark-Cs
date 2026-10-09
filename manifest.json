@@ -1,14 +1,32 @@
 {
-  "name": "ok.ru Plugin",
-  "version": "1.0.0",
+  "name": "ok.ru Deposu",
   "description": "ok.ru video arama, Türkçe dublaj ve TMDB entegrasyonu.",
+  "version": "1.0.0",
+  "author": "Mesut",
+  "providers": [
+    {
+      "name": "ok.ru TR",
+      "id": "okru",
+      "version": "1.0.0",
+      "url": "index.js",
+      "script": "index.js",
+      "file": "index.js",
+      "type": "movie",
+      "language": "tr",
+      "status": 1
+    }
+  ],
   "plugins": [
     {
       "name": "ok.ru TR",
       "id": "okru",
       "version": "1.0.0",
       "url": "index.js",
-      "site": "https://ok.ru"
+      "script": "index.js",
+      "file": "index.js",
+      "type": "movie",
+      "language": "tr",
+      "status": 1
     }
   ]
 }
