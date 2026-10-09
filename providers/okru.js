@@ -9,7 +9,7 @@ var AYAR = {
   SITE: 'https://ok.ru',
   EKLENTI_ADI: 'ok.ru',
   // true iken akış çıkmazsa neden çıkmadığını yazan "DEBUG" satırları görünür. Her şey çalışınca false yap.
-  DEBUG_MODU: true,
+  DEBUG_MODU: false,
   MAX_ADAY: 8,     // en fazla kaç aday video için kaynak çekilsin
   MAX_SORGU: 16,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
   MAX_SAYFA: 0,
@@ -915,19 +915,18 @@ function makeStreams(item, ranked, meta) {
     var hl = parts.concat(['HLS']);
     if (dur) hl.push(dur);
     if (AYAR.DEBUG_MODU) hl.push('[' + item.title.slice(0, 60) + ']');
-    return [{ name: AYAR.EKLENTI_ADI, title: hl.join(' | '), url: meta.hls, quality: 'Auto', headers: headers, provider: PROVIDER_ID }];
+    return [{ name: AYAR.EKLENTI_ADI + ' ' + ranked.lang, title: hl.join(' | '), url: meta.hls, quality: 'Auto', headers: headers, provider: PROVIDER_ID }];
   }
 
-  // en yüksek kalite + (varsa) en düşük kalite
-  var picks = [vids[0]];
-  if (ranked.tier <= 1 && vids.length > 1 && vids[vids.length - 1].h !== vids[0].h) picks.push(vids[vids.length - 1]);
+  // videonun TÜM çözünürlükleri (en yüksekten düşüğe)
+  var picks = vids;
 
   return picks.map(function (v) {
     var label = parts.concat([v.key || 'Auto']);
     if (dur) label.push(dur);
     if (AYAR.DEBUG_MODU) label.push('[' + item.title.slice(0, 60) + ']');
     return {
-      name: AYAR.EKLENTI_ADI,
+      name: AYAR.EKLENTI_ADI + ' ' + ranked.lang,
       title: label.join(' | '),
       url: v.url,
       quality: v.key || 'Auto',
@@ -1048,7 +1047,7 @@ function buildQueries(imdb, year, titles, trTitles) {
 
 function getStreamsInner(tmdbId, mediaType, season, episode) {
   if (mediaType !== 'movie') return Promise.resolve([]);
-  dbg = ['okru v1.0.2'];
+  dbg = ['okru v1.0.4'];
   var T0 = Date.now();
   var base = 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
 
