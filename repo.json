@@ -3,6 +3,6 @@
   "description": "wfilmizle.cam Türkçe dublaj/altyazı filmler",
   "manifestVersion": 1,
   "pluginLists": [
-    "https://raw.githubusercontent.com/Bymesut1/Dark-Cs/master/manifest.json"
+    "https://raw.githubusercontent.com/Bymesut1/Dark-Cs/main/manifest.json"
   ]
 }
