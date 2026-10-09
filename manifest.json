@@ -1,16 +1,16 @@
 {
-  "name": "ok.ru Deposu",
+  "name": "Dark-Cs Eklenti Deposu",
   "description": "ok.ru video arama, Türkçe dublaj ve TMDB entegrasyonu.",
   "version": "1.0.0",
-  "author": "Mesut",
+  "author": "Bymesut1",
   "providers": [
     {
       "name": "ok.ru TR",
       "id": "okru",
       "version": "1.0.0",
-      "url": "index.js",
-      "script": "index.js",
-      "file": "index.js",
+      "url": "providers/ok.ru.js",
+      "script": "providers/ok.ru.js",
+      "file": "providers/ok.ru.js",
       "type": "movie",
       "language": "tr",
       "status": 1
@@ -21,9 +21,9 @@
       "name": "ok.ru TR",
       "id": "okru",
       "version": "1.0.0",
-      "url": "index.js",
-      "script": "index.js",
-      "file": "index.js",
+      "url": "providers/ok.ru.js",
+      "script": "providers/ok.ru.js",
+      "file": "providers/ok.ru.js",
       "type": "movie",
       "language": "tr",
       "status": 1
