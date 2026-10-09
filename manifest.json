@@ -1,0 +1,15 @@
+{
+  "name": "wfilmizle",
+  "version": "1.0.2",
+  "scrapers": [
+    {
+      "id": "wfilmizle",
+      "name": "wfilmizle",
+      "description": "wfilmizle.cam Türkçe dublaj/altyazı filmler",
+      "version": "1.0.2",
+      "filename": "providers/wfilmizle.js",
+      "supportedTypes": ["movie"],
+      "enabled": true
+    }
+  ]
+}
