@@ -11,10 +11,12 @@ var AYAR = {
   // true iken akış çıkmazsa neden çıkmadığını yazan "DEBUG" satırları görünür. Her şey çalışınca false yap.
   DEBUG_MODU: false,
   MAX_ADAY: 8,     // en fazla kaç aday video için kaynak çekilsin
-  MAX_SORGU: 24,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
+  MAX_SORGU: 16,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
   MAX_SAYFA: 0,
   ONEKLER: [],
-  MANUEL: [],      // örnek: { adlar: ['Film Adı'], yil: 2000, dosya: 'sitedeki.tam.baslik' }
+  MANUEL: [        // { adlar: ['Film Adı'], yil: 2000, dosya: 'sitedeki.tam.baslik', id: 'ok.ru video numarası (varsa doğrudan eklenir, arama gerekmez)' }
+    { adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984-Filmsarayi.net', id: '1189269146174' }
+  ],
   ENGEL: [],
   HESAPLAR: [],
   HESAP_SAYFA: 0,
@@ -437,20 +439,6 @@ var NOISE = {};
  'cift', 'nf', 'amzn', 'dsnp', 'hmax', 'eski', 'yeni', 'seri', 'serisi', 'koleksiyon', 'fullhdfilm', 'hdfilm', 'filmizle', 'izlesene']
   .forEach(function (w) { NOISE[w] = 1; });
 
-// Film adının yanına yazılan TÜRKÇE site / ifade kelimeleri (Terminator.1.1984-Filmsarayi.net, "... Saray bağlan bize izle").
-// Ad yabancı olsa bile bunlardan biri varsa (ve yabancı dil / altyazı / EN etiketi yoksa) Türkçe sesli kabul edilir.
-// Yeni bir ifade görürsen buraya ekle (harfler sadeleştirilmiş, küçük: ğ->g, ş->s, ı->i ...).
-var TR_SITE_RE = /^(saray|sarayi|sarayim|filmsaray|filmsarayi|filmsarayim|baglan|baglanbize|bize|izle|izleyin|izlesene|filmizle|filmizleyin|hdfilmizle|fullfilmizle|fullhdfilmizle|fullizle|hdizle|izlefilm|bedava|sinema|sinemasi|turkceizle|turkcefilm|hdfilm|fullhdfilm|fullhd|yerlifilm|ucretsiz|canli|tamfilm|tekparca|tekparcaizle|dublajli|turkcedublaj|turkcedublajli|turkceizle|filmmodu|filmmax|filmbox|filmhane|filmcehennemi|filmkutusu|filmdunyasi)$/;
-function isTrSite(t) {
-  t = String(t || '');
-  return TR_SITE_RE.test(t) || (t.length >= 8 && /(saray|sarayi|filmizle|baglanbize)$/.test(t));
-}
-// Başlıkta Türkçe karakter var mı ya da Türkçe site kelimesi geçiyor mu
-function hasTrHint(title) {
-  if (hasTrChars(title)) return true;
-  return asciiLower(String(title || '')).split(/[^a-z0-9]+/).some(isTrSite);
-}
-
 // Aranan başlıktan anlamlı kelimeler (TMDB tarafı)
 function sigTokens(s) {
   var words = [], nums = [];
@@ -518,7 +506,7 @@ function analyze(title) {
     if (t === '4k') { info.res = Math.max(info.res, 2160); return; }
     m = t.match(/^(?:cd|disc|disk|pt|part|kisim)(\d)$/);
     if (m) { info.part = parseInt(m[1], 10); return; }
-    if (NOISE[t] || isTrSite(t) || /dublaj|turkce|altyaz|dual/.test(t)) { info.tags[t] = 1; return; }
+    if (NOISE[t] || /dublaj|turkce|altyaz|dual/.test(t)) { info.tags[t] = 1; return; }
     if (/^\d{1,2}$/.test(t)) { info.nums.push(parseInt(t, 10)); return; }
     if (ROMAN[t]) { info.nums.push(ROMAN[t]); return; }
     if (STOP_WORDS[t]) return;
@@ -669,13 +657,12 @@ function langInfo(info) {
   var dubOnly = any(/^dub$/) && !foreign && !en;          // "Dub.Frekans"
   if (dubOnly) { tr = true; dublaj = true; }
   var izle = any(/^izle$/);                       // "izle", "tr izle", "izle.avi", "720pizle" ...
-  var site = keys.some(isTrSite);                 // "Saray", "Bağlan Bize", "Filmsarayi", "film izle" ... (Türkçe site ifadeleri)
   if (tr && dublaj) return { label: 'TR Dublaj', tier: 0, ok: true, foreign: foreign, sub: sub, en: en };
   if (tr && dual) return { label: 'TR Dual', tier: 0, ok: true, foreign: foreign, sub: sub, en: en };
   if (tr && sub) return { label: 'TR Altyazı', tier: 5, ok: false, foreign: foreign, sub: true, en: en };
   if (tr) return { label: 'TR', tier: 0, ok: true, foreign: foreign, sub: sub, en: en };
   // "izle" etiketli (Türkçe sitelerin adlandırması) ve yabancı dil / altyazı / EN etiketi yoksa Türkçe say
-  if ((izle || site) && !foreign && !sub && !en) return { label: izle ? 'TR İzle' : 'TR Site', tier: 1, ok: true, foreign: foreign, sub: sub, en: en };
+  if (izle && !foreign && !sub && !en) return { label: 'TR İzle', tier: 1, ok: true, foreign: foreign, sub: sub, en: en };
   return { label: dual ? 'Dual' : sub ? 'Altyazı' : foreign ? 'Yabancı' : en ? 'EN' : '?', tier: 5, ok: false, foreign: foreign, sub: sub, en: en };
 }
 
@@ -753,7 +740,7 @@ function rankItem(item, ctx) {
   if (!li.ok) {
     var clean = !li.foreign && !li.sub && !li.en;                        // başka dil / altyazı / EN etiketi yok
     var trNameOk = !!(ctx.trWants && ctx.trWants.length && nameMatch(info, ctx.trWants));
-    var trChars = hasTrHint(item.title);
+    var trChars = hasTrChars(item.title);
     if (clean && li.label === '?' && (trNameOk || trChars)) {
       // Etiket yok ama Türkçe adla ya da Türkçe harflerle yazılmış: Türkçe say
       // (yıl yoksa süre ±%8 içinde olmalı; başka filmle karışmasın)
@@ -967,8 +954,6 @@ function dotted(s) { return String(s || '').replace(/[:\-–—!?,.'"’&]+/g, '
 
 // Film adının yanına eklenen etiketler (öncelik sırasıyla). Sitede elle yazdığın gibi: "Kelebek Etkisi 2 tr izle"
 // Arama kelimelerin HEPSİNİ içeren başlıkları getirir; bu yüzden her etiket ayrı sorgu olur.
-// Sitede film adının yanına elle yazılan Türkçe ifadeler (ör. "Terminator Saray", "Terminator bağlan bize", "Terminator film izle")
-var ETIKET_SITE = ['Filmsarayi', 'saray', 'Bağlan Bize', 'film izle', 'Film Sarayı', 'izle HD', 'bedava izle', 'Türkçe Dublaj film izle'];
 var ETIKET_ILK = ['TR', 'Türkçe Dublaj', 'izle', 'tr izle', 'Türkçe Dublaj izle'];
 var ETIKET_SONRA = ['dublaj', 'TR Dual', 'HD Türkçe', 'turkce', '1080p', '720p', 'BluRay', 'BRRip', 'DVDRip', 'tek',
   'türkce dublaj izle', 'izle türkce dublaj', 'izle Türkçe Dublaj', 'Türkçe Dublaj tek parça izle',
@@ -985,7 +970,6 @@ function firstWordOf(s) {                  // ilk anlamlı (5+ harf) kelime: "Te
   var w = sigTokens(plain(s)).words.filter(function (x) { return x.length >= 5; })[0];
   return w || '';
 }
-function noArticle(s) { return String(s || '').replace(/^(the|a|an)\s+/i, '').trim(); }
 function titleCase(w) { return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(); }
 function wordsOf(s) { return plain(s).replace(/[^A-Za-z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean); }
 // "Yapay Zeka" -> "YapayZeka" (yükleyenler kelimeleri bitişik yazar)
@@ -1029,11 +1013,7 @@ function buildQueries(imdb, year, titles, trTitles) {
   add(f0 && f0 !== h0 && f0 + y);
   add(fm && fm !== f0 && fm + y);
   add(h0 && h0 !== t0 && h0 + ' TR');
-  // Ad + Türkçe site ifadesi (yıl yazmadan: yükleyenler yılı her zaman yazmaz / farklı yerde yazar)
-  var siteNames = uniq([noArticle(t0), tr1, plain(tr1)].filter(Boolean));
-  ETIKET_SITE.slice(0, 4).forEach(function (tag) { siteNames.slice(0, 2).forEach(function (n) { add(n + ' ' + tag); }); });
   ETIKET_ILK.forEach(function (tag) { names.forEach(function (n) { add(n + ' ' + tag); }); });
-  ETIKET_SITE.slice(4).forEach(function (tag) { siteNames.slice(0, 2).forEach(function (n) { add(n + ' ' + tag); }); });
   // Yükleyenlerin yazım biçimleri: bitişik (YapayZeka), ünlüsüz (AltncHs / Bnka Sygnu), yükleyen işareti (tt.57556 ...)
   var noApos = main.replace(/['’`]/g, ' ').replace(/\s+/g, ' ').trim();                    // "Alaaddin'in Sarayı" -> "Alaaddin in Sarayı"
   var noSuffix = main.replace(/['’`][a-zçğıöşü]{1,4}(?=\s|$)/gi, '').replace(/\s+/g, ' ').trim();   // -> "Alaaddin Sarayı"
@@ -1109,12 +1089,13 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
       if ((e.adlar || []).some(function (a) { return wants.some(function (w) { return norm(w) === norm(a); }); })) ctx.engel.push(norm(e.dosya));
     });
     if (ctx.engel.length) dbg.push('engel ' + ctx.engel.length);
-    var manuelQs = [];
+    var manuelQs = [], direkt = [];
     (AYAR.MANUEL || []).forEach(function (e) {
       if (!e || !e.dosya || (e.yil && year && e.yil !== year)) return;
       var hit = (e.adlar || []).some(function (a) { return wants.some(function (w) { return norm(w) === norm(a); }); });
       if (!hit) return;
       ctx.manuel.push(norm(e.dosya));
+      if (e.id) { direkt.push({ id: String(e.id), title: e.dosya }); return; }   // numarası belli: arama yapmadan doğrudan ekle
       manuelQs.push(e.dosya);
       manuelQs.push(e.dosya.replace(/['’`]/g, ' '));
       manuelQs.push(e.dosya.replace(/^tt+\.?\d+\.?/i, ''));
@@ -1135,10 +1116,16 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
         return items.length ? morePages(r.text, items, AYAR.HESAP_SAYFA, 'H' + hi, hs) : items;
       }));
     });
-    return waitSome(jobs, Math.min(jobs.length, 18), AYAR.ARAMA_SURESI).then(function () {
+    return waitSome(jobs, Math.min(jobs.length, 14), AYAR.ARAMA_SURESI).then(function () {
       var seen = {}, all = [];
       sinks.forEach(function (l) {
         l.forEach(function (it) { if (!seen[it.path]) { seen[it.path] = true; all.push(it); } });
+      });
+      direkt.forEach(function (d) {                                      // garanti listesindeki doğrudan videolar (en başa)
+        var pth = '/video/' + d.id;
+        if (seen[pth]) { all.forEach(function (it) { if (it.path === pth) it.title = d.title; }); return; }
+        seen[pth] = true;
+        all.unshift({ path: pth, id: d.id, durText: '', dur: 0, title: d.title });
       });
       dbg.push('sonuc ' + all.length + ' ' + (Date.now() - T0) + 'ms');
       if (AYAR.DEBUG_MODU) {
@@ -1228,7 +1215,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams: getStreams, _t: { isTrSite: isTrSite, hasTrHint: hasTrHint, sameTitle: sameTitle, wildEq: wildEq, accountsOf: accountsOf, exactTitle: exactTitle, splitTok: splitTok, glueTitle: glueTitle, stripVowels: stripVowels, tokEq: tokEq, skelMatch: skelMatch, metaTurkishAudio: metaTurkishAudio, aliasNames: aliasNames, langInfo: langInfo, partialName: partialName, parseSearch: parseSearch, analyze: analyze, rankItem: rankItem, nameMatch: nameMatch, sigTokens: sigTokens, looseEq: looseEq, buildQueries: buildQueries, ETIKET_ILK: ETIKET_ILK, TR_ALIAS: TR_ALIAS } };
+  module.exports = { getStreams: getStreams, _t: { sameTitle: sameTitle, wildEq: wildEq, accountsOf: accountsOf, exactTitle: exactTitle, splitTok: splitTok, glueTitle: glueTitle, stripVowels: stripVowels, tokEq: tokEq, skelMatch: skelMatch, metaTurkishAudio: metaTurkishAudio, aliasNames: aliasNames, langInfo: langInfo, partialName: partialName, parseSearch: parseSearch, analyze: analyze, rankItem: rankItem, nameMatch: nameMatch, sigTokens: sigTokens, looseEq: looseEq, buildQueries: buildQueries, ETIKET_ILK: ETIKET_ILK, TR_ALIAS: TR_ALIAS } };
 } else {
   global.getStreams = getStreams;
 }
