@@ -9,7 +9,7 @@ var AYAR = {
   SITE: 'https://ok.ru',
   EKLENTI_ADI: 'ok.ru',
   // true iken akış çıkmazsa neden çıkmadığını yazan "DEBUG" satırları görünür. Her şey çalışınca false yap.
-  DEBUG_MODU: false,
+  DEBUG_MODU: true,
   MAX_ADAY: 8,     // en fazla kaç aday video için kaynak çekilsin
   MAX_SORGU: 16,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
   MAX_SAYFA: 0,
@@ -796,6 +796,14 @@ function parseSearch(html) {
     var re = /href="\/video\/(\d{6,})[^"]*"[^>]*data-tsid="video-name">([^<]+)</g, m;
     while ((m = re.exec(html)) !== null) add({ id: m[1], title: decodeHtml(m[2]) });
   }
+  if (!out.length) {                                    // yedek 2: sayfadaki JSON parçaları (&quot; -> ")
+    var dec = decodeHtml(html), re2 = /"id":"(\d{8,})"[^{}]{0,500}?"title":"([^"]{2,200})"/g, m2;
+    while ((m2 = re2.exec(dec)) !== null) add({ id: m2[1], title: m2[2] });
+  }
+  if (!out.length) {                                    // yedek 3: /video/ID bağlantıları + title=
+    var re3 = /href="\/video\/(\d{8,})[^"]*"[^>]*?(?:title|aria-label)="([^"]{2,200})"/g, m3;
+    while ((m3 = re3.exec(html)) !== null) add({ id: m3[1], title: decodeHtml(m3[2]) });
+  }
   return out;
 }
 
@@ -810,16 +818,28 @@ var SEARCH_URLS = [
 ];
 
 // Bulunan sonuçlar hemen `sink` listesine yazılır (süre dolsa bile biten kısım kullanılır)
+var UA_MASAUSTU = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
 function searchOnce(q, tag, pages, sink) {
-  var enc = encodeURIComponent(q), i = 0;
+  var enc = encodeURIComponent(q);
+  // ilk 3 sorguda birkaç yöntem denenir, diğerlerinde sadece ilk yöntem (hız)
+  var tries = tag <= 3
+    ? [[0, false], [0, true], [1, true], [2, true]]
+    : [[0, false]];
+  var i = 0;
   function next() {
-    if (i >= SEARCH_URLS.length) return Promise.resolve([]);
-    var u = SEARCH_URLS[i++](enc);
-    return getRaw(u, pageHeaders(), 'S' + tag).then(function (r) {
-      if (!r.ok) return next();                  // sayfa açılmadıysa yedek adrese geç
-      var items = parseSearch(r.text);
-      sink.push.apply(sink, items);
-      return items;
+    if (i >= tries.length) return Promise.resolve([]);
+    var t = tries[i++], u = SEARCH_URLS[t[0]](enc);
+    return getRaw(u, pageHeaders(t[1] ? { 'User-Agent': UA_MASAUSTU } : null), 'S' + tag + '.' + i).then(function (r) {
+      var items = r.ok ? parseSearch(r.text) : [];
+      if (AYAR.DEBUG_MODU && tag <= 3) {
+        var tx = r.text || '';
+        dbg.push('q' + tag + '.' + i + ' st=' + r.status + ' len=' + tx.length + ' n=' + items.length +
+          ' props=' + (tx.indexOf('data-props') > -1 ? 1 : 0) + ' vsr=' + (tx.indexOf('video-search-result') > -1 ? 1 : 0) +
+          ' cap=' + (/captcha|robot|consent/i.test(tx) ? 1 : 0) + (items[0] ? ' ' + items[0].title.slice(0, 22) : ''));
+      }
+      if (items.length) { sink.push.apply(sink, items); return items; }
+      return next();
     });
   }
   return next();
@@ -1016,7 +1036,7 @@ function buildQueries(imdb, year, titles, trTitles) {
 
 function getStreamsInner(tmdbId, mediaType, season, episode) {
   if (mediaType !== 'movie') return Promise.resolve([]);
-  dbg = ['okru v1.0.0'];
+  dbg = ['okru v1.0.1'];
   var T0 = Date.now();
   var base = 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
 
