@@ -8,21 +8,9 @@
       "name": "ok.ru TR",
       "id": "okru",
       "version": "1.0.0",
-      "url": "providers/ok.ru.js",
       "script": "providers/ok.ru.js",
-      "file": "providers/ok.ru.js",
-      "type": "movie",
-      "language": "tr",
-      "status": 1
-    }
-  ],
-  "plugins": [
-    {
-      "name": "ok.ru TR",
-      "id": "okru",
-      "version": "1.0.0",
+      "path": "providers/ok.ru.js",
       "url": "providers/ok.ru.js",
-      "script": "providers/ok.ru.js",
       "file": "providers/ok.ru.js",
       "type": "movie",
       "language": "tr",
