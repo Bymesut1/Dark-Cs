@@ -20,8 +20,8 @@ var AYAR = {
   HESAP_SAYFA: 0,
   BELIRSIZ_GOSTER: true,  // dili doğrulanamayan adaylar "Dil ?" etiketiyle en sona eklensin
   MAX_BELIRSIZ: 5,
-  ARAMA_SURESI: 5000,  // ms
-  GENEL_SURE: 9500,    // ms
+  ARAMA_SURESI: 8000,  // ms
+  GENEL_SURE: 12000,    // ms
   KAYNAK_SURESI: 3500  // ms
 };
 
@@ -766,43 +766,47 @@ function parseDuration(s) {
   return n;
 }
 
-// ok.ru arama sayfası: <video-search-result data-props="{...}"> içindeki JSON
+// ok.ru arama sayfası: sayfadaki JSON bloklarında (data-props vb.) film kayıtlarını bul
+function walkMovies(o, add, depth) {
+  if (!o || typeof o !== 'object' || depth > 9) return;
+  if (Array.isArray(o)) { o.forEach(function (x) { walkMovies(x, add, depth + 1); }); return; }
+  if (o.movie && typeof o.movie === 'object' && o.movie.id) add(o.movie);
+  else if (o.id && /^\d{8,}$/.test(String(o.id)) && (o.title || o.name) && (o.duration || o.thumbnail || o.thumbnailUrl || o.poster || o.imageUrl)) add(o);
+  Object.keys(o).forEach(function (k) { if (o[k] && typeof o[k] === 'object') walkMovies(o[k], add, depth + 1); });
+}
+
 function parseSearch(html) {
   var out = [], seen = {};
   html = String(html || '');
   function add(m) {
     if (!m || !m.id || seen[m.id]) return;
+    var title = decodeHtml(String(m.title || m.name || '')).trim();
+    if (!title) return;
     seen[m.id] = true;
     var d = Number(m.duration) || 0;               // ok.ru arama sonucunda süre milisaniye
-    out.push({
-      path: '/video/' + m.id,
-      id: String(m.id),
-      durText: '',
-      dur: d ? Math.round(d / 1000) : 0,
-      title: decodeHtml(String(m.title || m.name || '')).trim()
-    });
+    out.push({ path: '/video/' + m.id, id: String(m.id), durText: '', dur: d ? Math.round(d / 1000) : 0, title: title });
   }
-  var tag = html.match(/<video-search-result[^>]*?data-props="([^"]+)"/);
-  if (tag) {
-    try {
-      var props = JSON.parse(decodeHtml(tag[1]));
-      ((props.videos && props.videos.list) || []).forEach(function (v) { add(v.movie); });
-      ((props.channels && props.channels.list) || []).forEach(function (c) {
-        (c.videos || []).forEach(function (v) { add(v.movie); });
-      });
-    } catch (e) {}
+  var re0 = /data-(?:props|options|module|state)="([^"]+)"/g, m0;
+  while ((m0 = re0.exec(html)) !== null) {
+    try { walkMovies(JSON.parse(decodeHtml(m0[1])), add, 0); } catch (e) {}
   }
   if (!out.length) {
-    var re = /href="\/video\/(\d{6,})[^"]*"[^>]*data-tsid="video-name">([^<]+)</g, m;
-    while ((m = re.exec(html)) !== null) add({ id: m[1], title: decodeHtml(m[2]) });
-  }
-  if (!out.length) {                                    // yedek 2: sayfadaki JSON parçaları (&quot; -> ")
-    var dec = decodeHtml(html), re2 = /"id":"(\d{8,})"[^{}]{0,500}?"title":"([^"]{2,200})"/g, m2;
+    var dec = decodeHtml(html), re2 = /"movie":\{[^{}]{0,800}?"id":"?(\d{8,})"?[^{}]{0,800}?"title":"([^"]{2,200})"/g, m2;
     while ((m2 = re2.exec(dec)) !== null) add({ id: m2[1], title: m2[2] });
+    var re2b = /"id":"?(\d{8,})"?,"title":"([^"]{2,200})"/g, m2b;
+    while ((m2b = re2b.exec(dec)) !== null) add({ id: m2b[1], title: m2b[2] });
   }
-  if (!out.length) {                                    // yedek 3: /video/ID bağlantıları + title=
-    var re3 = /href="\/video\/(\d{8,})[^"]*"[^>]*?(?:title|aria-label)="([^"]{2,200})"/g, m3;
-    while ((m3 = re3.exec(html)) !== null) add({ id: m3[1], title: decodeHtml(m3[2]) });
+  if (!out.length) {
+    var re1 = /href="\/video\/(\d{6,})[^"]*"[^>]*data-tsid="video-name">([^<]+)</g, m1;
+    while ((m1 = re1.exec(html)) !== null) add({ id: m1[1], title: m1[2] });
+  }
+  if (!out.length) {
+    var re3 = /href="(?:https?:\/\/ok\.ru)?\/video\/(\d{8,})[^"]*"[^>]*?(?:title|aria-label)="([^"]{2,200})"/g, m3;
+    while ((m3 = re3.exec(html)) !== null) add({ id: m3[1], title: m3[2] });
+  }
+  if (!out.length) {
+    var re4 = /href="(?:https?:\/\/ok\.ru)?\/video\/(\d{8,})[^"]*"[^>]*>\s*([^<]{3,150})</g, m4;
+    while ((m4 = re4.exec(html)) !== null) add({ id: m4[1], title: m4[2] });
   }
   return out;
 }
@@ -814,18 +818,20 @@ function scanList() { return Promise.resolve(); }
 var SEARCH_URLS = [
   function (q) { return AYAR.SITE + '/video/search?st.cmd=video&st.m=SEARCH&st.ft=search&st.v.sq=' + q; },
   function (q) { return AYAR.SITE + '/video/search?st.cmd=anonymVideo&st.m=SEARCH&st.v.sq=' + q; },
-  function (q) { return AYAR.SITE + '/video/showcase?st.v.sq=' + q; }
+  function (q) { return AYAR.SITE + '/video/showcase?st.v.sq=' + q; },
+  function (q) { return AYAR.SITE + '/search?st.cmd=searchResult&st.mode=Movie&st.query=' + q; },
+  function (q) { return AYAR.SITE + '/video/search?st.v.sq=' + q; },
+  function (q) { return AYAR.SITE + '/dk?st.cmd=searchResult&st.mode=Movie&st.query=' + q; }
 ];
 
-// Bulunan sonuçlar hemen `sink` listesine yazılır (süre dolsa bile biten kısım kullanılır)
 var UA_MASAUSTU = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 function searchOnce(q, tag, pages, sink) {
   var enc = encodeURIComponent(q);
   // ilk 3 sorguda birkaç yöntem denenir, diğerlerinde sadece ilk yöntem (hız)
   var tries = tag <= 3
-    ? [[0, false], [0, true], [1, true], [2, true]]
-    : [[0, false]];
+    ? [[3, true], [0, false], [4, true], [1, true], [5, true], [2, true]]
+    : [[3, true]];
   var i = 0;
   function next() {
     if (i >= tries.length) return Promise.resolve([]);
@@ -833,10 +839,16 @@ function searchOnce(q, tag, pages, sink) {
     return getRaw(u, pageHeaders(t[1] ? { 'User-Agent': UA_MASAUSTU } : null), 'S' + tag + '.' + i).then(function (r) {
       var items = r.ok ? parseSearch(r.text) : [];
       if (AYAR.DEBUG_MODU && tag <= 3) {
-        var tx = r.text || '';
-        dbg.push('q' + tag + '.' + i + ' st=' + r.status + ' len=' + tx.length + ' n=' + items.length +
-          ' props=' + (tx.indexOf('data-props') > -1 ? 1 : 0) + ' vsr=' + (tx.indexOf('video-search-result') > -1 ? 1 : 0) +
-          ' cap=' + (/captcha|robot|consent/i.test(tx) ? 1 : 0) + (items[0] ? ' ' + items[0].title.slice(0, 22) : ''));
+        var tx = r.text || '', cm = tx.match(/captcha|robot|consent|blocked|forbidden/i);
+        dbg.push('q' + tag + '.' + i + ' url' + t[0] + ' st=' + r.status + ' len=' + tx.length + ' n=' + items.length +
+          ' props=' + (tx.indexOf('data-props') > -1 ? 1 : 0) + ' vid=' + ((tx.match(/\/video\/\d{8,}/g) || []).length) +
+          ' cap=' + (cm ? cm[0] : 0) + (items[0] ? ' ' + items[0].title.slice(0, 22) : ''));
+        if (tag === 1 && i <= 2) {
+          var tags = (tx.match(/<[a-z0-9-]+[^>]{0,200}data-props=/g) || []).slice(0, 5).map(function (x) { return x.match(/<([a-z0-9-]+)/)[1]; }).join(',');
+          dbg.push('q1.' + i + ' tag: ' + tags + ' | title: ' + ((tx.match(/<title>([^<]{0,60})/) || [])[1] || '-'));
+          var vi = tx.search(/\/video\/\d{8,}/);
+          if (vi > -1) dbg.push('q1.' + i + ' ornek: ' + tx.slice(Math.max(0, vi - 40), vi + 90).replace(/\s+/g, ' '));
+        }
       }
       if (items.length) { sink.push.apply(sink, items); return items; }
       return next();
@@ -1036,7 +1048,7 @@ function buildQueries(imdb, year, titles, trTitles) {
 
 function getStreamsInner(tmdbId, mediaType, season, episode) {
   if (mediaType !== 'movie') return Promise.resolve([]);
-  dbg = ['okru v1.0.1'];
+  dbg = ['okru v1.0.2'];
   var T0 = Date.now();
   var base = 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
 
