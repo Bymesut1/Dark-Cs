@@ -1,1 +1,16 @@
-
+{
+  "id": "ru.ok.tmdb.provider",
+  "version": "1.0.0",
+  "name": "ok.ru TR (TMDB)",
+  "description": "ok.ru video arama, Türkçe dublaj, TMDB entegrasyonu ve baglanfilmizle kanal önceliklendirmesi.",
+  "resources": [
+    "stream"
+  ],
+  "types": [
+    "movie"
+  ],
+  "idPrefixes": [
+    "tt"
+  ],
+  "catalogs": []
+}
