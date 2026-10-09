@@ -1,8 +1,4 @@
-// ok.ru Nuvio & Stremio Provider (Mail.ru Eşleştirme Mantığı İle)
-const http = require("http");
-
-const PORT = process.env.PORT || 7000;
-const PREFIX = "okru:";
+// ok.ru Nuvio JS Plugin Provider
 const UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
 const HEADERS = { "User-Agent": UA, "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8" };
 const TMDB_KEY = '000316508321ce461cf81e7c6815eec7';
@@ -10,12 +6,9 @@ const TMDB_KEY = '000316508321ce461cf81e7c6815eec7';
 const AYAR = {
   EKLENTI_ADI: 'ok.ru TR',
   PROVIDER_ID: 'okru',
-  DEBUG_MODU: false,
   MAX_ADAY: 8,
   MAX_SORGU: 20,
-  ONEKLER: ['www.baglanfilmizle.tr', 'baglanfilmizle'],
-  ARAMA_SURESI: 5000,
-  GENEL_SURE: 9000
+  ONEKLER: ['www.baglanfilmizle.tr', 'baglanfilmizle']
 };
 
 const STOP_WORDS = { the: 1, a: 1, an: 1, of: 1, and: 1, ve: 1, ile: 1, film: 1, filmi: 1, izle: 1, movie: 1 };
@@ -231,7 +224,7 @@ async function resolveVideo(id) {
   return null;
 }
 
-async function getStreams(tmdbId, mediaType, season, episode, reqBase = '') {
+async function getStreams(tmdbId, mediaType, season, episode) {
   if (mediaType && mediaType !== "movie") return [];
   const b = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_KEY}`;
   const [tr, en, trans, alt] = await Promise.all([
@@ -289,52 +282,19 @@ async function getStreams(tmdbId, mediaType, season, episode, reqBase = '') {
       const qText = f.h ? `${f.h}p` : f.name;
       streams.push({
         name: AYAR.EKLENTI_ADI,
-        title: `${x.item.title}\n${x.r.lang} | ${qText}`,
+        title: `${x.item.title} • ${x.r.lang}`,
         url: f.url,
         quality: qText,
-        headers: { "User-Agent": UA },
-        behaviorHints: { proxyHeaders: { request: { "User-Agent": UA } } }
+        headers: { "User-Agent": UA, "Referer": "https://ok.ru/" },
+        provider: AYAR.PROVIDER_ID
       });
     });
   }
   return streams;
 }
 
-function send(res, code, obj, type) {
-  res.writeHead(code, {
-    "Content-Type": type || "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "*"
-  });
-  res.end(typeof obj === "string" ? obj : JSON.stringify(obj));
-}
-
-async function handler(req, res) {
-  if (req.method === "OPTIONS") return send(res, 204, "");
-  const host = req.headers["x-forwarded-host"] || req.headers.host;
-  const proto = req.headers["x-forwarded-proto"] || "http";
-  const base = `${proto}://${host}`;
-  const path = decodeURIComponent(req.url.split("?")[0]);
-
-  try {
-    if (path === "/") return send(res, 200, `<h2>ok.ru TR TMDB Eklentisi</h2><p>Eklenecek link: <b>${base}/manifest.json</b></p>`, "text/html; charset=utf-8");
-    if (path === "/manifest.json") return send(res, 200, require('./manifest.json'));
-
-    const m = path.match(/^\/stream\/(movie)\/(tt\d+)\.json$/);
-    if (m) {
-      const streams = await getStreams(m[2], m[1], null, null, base);
-      return send(res, 200, { streams });
-    }
-
-    send(res, 404, { error: "Bulunamadı" });
-  } catch (e) {
-    console.error(e);
-    send(res, 500, { error: String(e.message || e) });
-  }
-}
-
-module.exports = { getStreams, handler };
-
-if (require.main === module) {
-  http.createServer(handler).listen(PORT, () => console.log(`ok.ru TMDB Eklentisi: http://localhost:${PORT}/manifest.json`));
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
 }
