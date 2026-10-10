@@ -9,17 +9,23 @@ var AYAR = {
   SITE: 'https://ok.ru',
   EKLENTI_ADI: 'ok.ru',
   // true iken akış çıkmazsa neden çıkmadığını yazan "DEBUG" satırları görünür. Her şey çalışınca false yap.
-  DEBUG_MODU: false,
+  DEBUG_MODU: true,
   MAX_ADAY: 8,     // en fazla kaç aday video için kaynak çekilsin
   MAX_SORGU: 16,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
   MAX_SAYFA: 0,
   ONEKLER: [],
   MANUEL: [        // { tmdb: 123, adlar: ['Film Adı'], yil: 2000, dosya: 'sitedeki.tam.baslik', id: 'ok.ru video numarası' }
                    // tmdb + id varsa: arama/TMDB beklenmeden, bağımsız ve tekrar denemeli şekilde KESİN eklenir
+    // tmdb 218 = The Terminator (1984). Aynı filme birden çok dosya verilebilir; ayakta olan hepsi listelenir.
+    { tmdb: 218, adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984.TR.1080p', id: '1766021532169' },
+    { tmdb: 218, adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984.1080p.BluRay.x264.TR', id: '1050987137588' },
     { tmdb: 218, adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984-Filmsarayi.net', id: '1189269146174' }
+    // sude can hesabındaki 'Fs.Dngl' (id 1150481009214, 2:41:01) hangi film olduğu bilinmediği için eklenmedi; tmdb numarası belli olunca buraya yazılır.
   ],
   ENGEL: [],
-  HESAPLAR: [],
+  // Yükleyen hesapların video sayfaları: her aramada taranır, bulunan videolar film adıyla eşleşirse adaya eklenir (arama kriterine yardımcı).
+  // 590041294398 = "sude can" (Terminator.1.1984-Filmsarayi.net vb. dosya adlı yüklemeler)
+  HESAPLAR: ['https://ok.ru/profile/590041294398/video'],
   HESAP_SAYFA: 0,
   BELIRSIZ_GOSTER: true,  // dili doğrulanamayan adaylar "Dil ?" etiketiyle en sona eklensin
   MAX_BELIRSIZ: 5,
@@ -331,8 +337,8 @@ function getRaw(url, headers, label) {
       if (m) cookie = m[1];
     } catch (e) {}
     return withTimeout(res.text(), 5000).then(
-      function (t) { return { status: res.status, ok: res.ok, text: t || '', cookie: cookie }; },
-      function () { return { status: res.status, ok: false, text: '', cookie: cookie }; }
+      function (t) { return { status: res.status, ok: res.ok, text: t || '', cookie: cookie, url: res.url || '' }; },
+      function () { return { status: res.status, ok: false, text: '', cookie: cookie, url: res.url || '' }; }
     );
   }).catch(function (e) {
     return { status: 0, ok: false, text: '', cookie: '', err: (e && e.message) || 'hata' };
@@ -649,9 +655,9 @@ function metaTurkishAudio(m) {
 function langInfo(info) {
   var keys = Object.keys(info.tags).concat(info.bag);
   function any(re) { return keys.some(function (k) { return re.test(k); }); }
-  var tr = any(/^tr$|^trk$|turkce|turkish|dublaj|^trdub/);
+  var tr = any(/^tr$|^trk$|^tur$|^turk$|^turkiye$|turkce|turkish|dublaj|^trdub|^trdubl|^tr(dublaj|dublajli|dual|hd|1080p|720p)$/);
   var dual = any(/dual|^cift$/);
-  var dublaj = any(/dublaj|^trdub/);
+  var dublaj = any(/dublaj|^trdub|^dubl/);
   var sub = any(/altyaz|^sub$|^subs$|subtitle/);
   var foreign = any(/^(rus|russian|rusca|ru|ukr|ukrainian|ger|german|deu|fre|french|fra|spa|spanish|ita|italian|hin|hindi|kor|korean|jpn|japanese|chi|chinese|pol|por|arabic|ar|arapca|farsi|persian)$/);
   var en = any(/^en$|^eng$|^english$|ingilizce/);
@@ -884,6 +890,7 @@ function fetchMeta(item, masaustu) {
         return { videos: vids, hls: hls, cookie: '', meta: md, raw: md };
       } catch (e) {}
     }
+    dbg.push('V' + String(item.id).slice(-4) + ' kaynak yok: status=' + r.status + ' url=' + String(r.url || '').replace(/^https?:\/\/[^\/]+/, '').slice(0, 50) + ' flashvars=' + (html.indexOf('flashvars') > -1 ? 1 : 0));
     return null;
   });
 }
@@ -960,7 +967,8 @@ var ETIKET_SONRA = ['dublaj', 'TR Dual', 'HD Türkçe', 'turkce', '1080p', '720p
   'türkce dublaj izle', 'izle türkce dublaj', 'izle Türkçe Dublaj', 'Türkçe Dublaj tek parça izle',
   'türkce dublaj tek parca izle', 'tek parça izle', 'tek parca izle', 'türkce dublaj', 'turkce dublaj',
   'bölüm izle', '1080p izle', '720p izle', '480p izle', '1080pizle', '720pizle', '480pizle', 'tr dublaj izle',
-  'izle.mp4', 'izle.avi', 'izle.mpv', 'TR dub', 'dual tr', 'TR-TEK', 'HD'];
+  'izle.mp4', 'izle.avi', 'izle.mpv', 'TR dub', 'dual tr', 'TR-TEK', 'HD',
+  'dublajli', 'tr dublajli', 'turkce dub', 'Türkçe Dub', 'TRDUB', 'TR 1080p', 'TR 720p', 'TR BluRay', 'Türkçe', 'full izle', 'tek parça'];
 
 // Sorgular (öncelik sırasıyla; MAX_SORGU kadarı kullanılır)
 function headOf(s) {                       // "Terminatör 2: Mahşer Günü" -> "Terminatör 2"
@@ -1092,10 +1100,10 @@ function garantiMeta(id) {
 }
 
 function garantiAkislar(girdiler) {
-  return Promise.all(girdiler.map(function (e) {
+  return Promise.all(girdiler.map(function (e, gi) {
     return garantiMeta(e.id).then(function (meta) {
       if (!meta) { dbg.push('garanti meta yok ' + e.id); return []; }
-      return makeStreams({ id: String(e.id), title: e.dosya, dur: 0 }, { lang: 'TR', info: {} }, meta);
+      return makeStreams({ id: String(e.id), title: e.dosya, dur: 0 }, { lang: girdiler.length > 1 ? 'TR #' + (gi + 1) : 'TR', info: {} }, meta);
     }, function () { return []; });
   })).then(function (lists) {
     return lists.reduce(function (a, l) { return a.concat(l); }, []);
@@ -1105,7 +1113,7 @@ function garantiAkislar(girdiler) {
 function getStreamsInner(tmdbId, mediaType, season, episode) {
   if (mediaType !== 'movie') return Promise.resolve([]);
   var gIds = garantiGirdileri(tmdbId, mediaType).map(function (e) { return String(e.id); });   // garanti yolu zaten bunları çekiyor
-  dbg = ['okru v1.0.6'];
+  dbg = ['okru v1.0.7'];
   var T0 = Date.now();
   var base = 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
 
@@ -1275,14 +1283,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
     var timer = setTimeout(function () {
       if (done) return;
       done = true;
-      gp.then(function (g) { resolve(birlestir(g, debugStream('zaman asimi ' + AYAR.GENEL_SURE + 'ms'))); });
+      gp.then(function (g) { resolve(birlestir(g, debugStream('zaman asimi ' + AYAR.GENEL_SURE + 'ms garanti=' + g.length))); });
     }, AYAR.GENEL_SURE);
     getStreamsInner(tmdbId, mediaType, season, episode).then(function (r) { return r; }, function () { return []; })
       .then(function (r) {
         return gp.then(function (g) {
           if (done) return;
           done = true; clearTimeout(timer);
-          resolve(birlestir(g, r));
+          resolve(birlestir(g, AYAR.DEBUG_MODU ? (r || []).concat([{ name: 'DEBUG garanti akis: ' + g.length, title: 'DEBUG garanti akis: ' + g.length, url: 'https://debug.invalid/', quality: 'Auto', provider: PROVIDER_ID }]) : r));
         });
       });
   });
