@@ -9,9 +9,11 @@ var AYAR = {
   SITE: 'https://ok.ru',
   EKLENTI_ADI: 'ok.ru',
   // true iken akış çıkmazsa neden çıkmadığını yazan "DEBUG" satırları görünür. Her şey çalışınca false yap.
+  // ok.ru'nun kendi arama/profil sayfaları artık boş JS kabuğu döndürüyor (v1.0.9: arama motorları + video sayfası metadata'sı ile doğrulama)
+  ARAMA_MOTORU: true,
   DEBUG_MODU: true,
   MAX_ADAY: 8,     // en fazla kaç aday video için kaynak çekilsin
-  MAX_SORGU: 16,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
+  MAX_SORGU: 3,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
   MAX_SAYFA: 0,
   ONEKLER: [],
   MANUEL: [        // { tmdb: 123, adlar: ['Film Adı'], yil: 2000, dosya: 'sitedeki.tam.baslik', id: 'ok.ru video numarası' }
@@ -28,13 +30,13 @@ var AYAR = {
     { id: '1189269146174', title: 'Terminator.1.1984-Filmsarayi.net', dur: 6433 },
     { id: '1150481009214', title: 'Fs.Dngl', dur: 9661 }
   ],
-  PARALEL: 4,          // aynı anda en fazla kaç arama/liste isteği (yavaş ağda zaman aşımını önler)
+  PARALEL: 6,          // aynı anda en fazla kaç arama/liste isteği (yavaş ağda zaman aşımını önler)
   HESAP_SAYFA: 0,
   BELIRSIZ_GOSTER: true,  // dili doğrulanamayan adaylar "Dil ?" etiketiyle en sona eklensin
   MAX_BELIRSIZ: 5,
-  ARAMA_SURESI: 8000,  // ms
-  GENEL_SURE: 12000,    // ms
-  KAYNAK_SURESI: 3500  // ms
+  ARAMA_SURESI: 6500,  // ms
+  GENEL_SURE: 24000,    // ms
+  KAYNAK_SURESI: 5000  // ms
 };
 
 // Türkçe adı TMDB'de görünmeyen / farklı yazılan filmler: orijinal ad (harf-rakam, küçük) -> Türkçe adlar
@@ -936,6 +938,34 @@ function searchOnce(q, tag, pages, sink) {
   return next();
 }
 
+// ---------------- Arama motorları (ok.ru kendi aramasında boş kabuk döndürdüğü için) ----------------
+// "site:ok.ru/video <ad> <yıl>" aratılır, çıkan ok.ru video numaraları aday olur; gerçek başlık ve süre
+// video sayfasının metadata'sından okunup puanlamaya sokulur (arama sonucundaki başlığa güvenilmez).
+function engineUrls(q) {
+  var e = encodeURIComponent('site:ok.ru/video ' + q);
+  return [
+    'https://html.duckduckgo.com/html/?q=' + e + '&kl=tr-tr',
+    'https://www.bing.com/search?q=' + e + '&setlang=tr&count=30',
+    'https://search.brave.com/search?q=' + e + '&source=web'
+  ];
+}
+function parseEngine(html) {
+  var out = [], seen = {}, m, re = /ok\.ru(?:\/|%2F|%252F)video(?:embed)?(?:\/|%2F|%252F)(\d{8,})/gi;
+  html = String(html || '');
+  while ((m = re.exec(html)) !== null) {
+    if (!seen[m[1]]) { seen[m[1]] = 1; out.push({ path: '/video/' + m[1], id: m[1], title: '', durText: '', dur: 0 }); }
+  }
+  return out;
+}
+function engineSearch(q, qi, sink) {
+  return Promise.all(engineUrls(q).map(function (u, ui) {
+    return getRaw(u, pageHeaders({ 'User-Agent': UA_MASAUSTU, 'Referer': 'https://www.google.com/' }), 'E' + qi + '.' + ui, { timeout: 6000 }).then(function (r) {
+      var items = r.ok ? parseEngine(r.text) : [];
+      items.forEach(function (it) { sink.push(it); });
+    }, function () {});
+  }));
+}
+
 // ---------------- Video kaynağı ----------------
 
 var OK_KALITE = { ultra: 2160, quad: 1440, full: 1080, hd: 720, sd: 480, low: 360, lowest: 240, mobile: 144 };
@@ -948,7 +978,8 @@ function buildMeta(md) {
   });
   var hls = md.hlsManifestUrl || md.hlsMasterPlaylistUrl || md.ondemandHls || '';
   if (!vids.length && !hls) return null;
-  return { videos: vids, hls: hls, cookie: '', meta: md, raw: md };
+  var mv = (md.movie && typeof md.movie === 'object') ? md.movie : {};
+  return { videos: vids, hls: hls, cookie: '', meta: md, raw: md, title: String(mv.title || md.title || ''), dur: parseInt(mv.duration || md.duration, 10) || 0 };
 }
 
 function metaFromHtml(html) {
@@ -1237,7 +1268,7 @@ function garantiAkislar(girdiler) {
 function getStreamsInner(tmdbId, mediaType, season, episode) {
   if (mediaType !== 'movie') return Promise.resolve([]);
   var gIds = garantiGirdileri(tmdbId, mediaType).map(function (e) { return String(e.id); });   // garanti yolu zaten bunları çekiyor
-  dbg = ['okru v1.0.8'];
+  dbg = ['okru v1.0.9'];
   var T0 = Date.now();
   var base = 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
 
@@ -1296,6 +1327,12 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
       var pages = (q === mainQ || /^\d{4} /.test(q)) ? 2 : (i < 4 ? AYAR.MAX_SAYFA : 0);   // sadece-ad sorgusu en çok sayfa okur
       return searchOnce(q, i + 1, pages, sinks[i]);
     });
+    var engSink = [];
+    if (AYAR.ARAMA_MOTORU) {
+      var eMain = (trWants[0] || titles[0] || '').replace(/\s+/g, ' ').trim(), eEn = (titles[0] || '').replace(/\s+/g, ' ').trim(), yy = year ? ' ' + year : '';
+      uniq([eMain + yy, eMain + ' Türkçe Dublaj' + yy, eEn + yy + ' TR']).filter(function (q) { return q.trim().length >= 3; }).slice(0, 3)
+        .forEach(function (q, qi) { jobs.push(engineSearch(q, qi + 1, engSink)); });
+    }
     (AYAR.HESAPLAR || []).forEach(function (u, hi) {                       // yükleyen hesabın tüm listesi
       var hs = [];
       sinks.push(hs);
@@ -1306,7 +1343,7 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
         return items.length ? morePages(r.text, items, AYAR.HESAP_SAYFA, 'H' + hi, hs) : items;
       }));
     });
-    return waitSome(jobs, Math.min(jobs.length, 14), AYAR.ARAMA_SURESI).then(function () {
+    return waitWithin(jobs, AYAR.ARAMA_SURESI).then(function () {
       var seen = {}, all = [];
       sinks.forEach(function (l) {
         l.forEach(function (it) { if (!seen[it.path]) { seen[it.path] = true; all.push(it); } });
@@ -1353,8 +1390,24 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
           dbg.push('hesap ' + u.replace(/^https?:\/\/[^\/]+/, '') + ' +' + add);
         });
       }), 3800) : Promise.resolve();
+      function motorDogrula() {
+        if (ranked.some(function (x) { return !x.r.maybe; }) || !engSink.length) return Promise.resolve();
+        var cands = [], sn = {};
+        engSink.forEach(function (it) { if (!seen[it.path] && !sn[it.path]) { sn[it.path] = 1; cands.push(it); } });
+        dbg.push('motor aday ' + cands.length);
+        return waitWithin(cands.slice(0, 8).map(function (it) {
+          return fetchMeta(it).then(function (m) {
+            if (!m) return;
+            if (!m.title) { dbg.push('motor baslik yok ' + it.id); return; }
+            seen[it.path] = true;
+            all.push({ path: it.path, id: it.id, title: m.title, durText: '', dur: m.dur, metaHazir: m });
+          }, function () {});
+        }), 7000).then(function () { rankAll(); dbg.push('motor sonrasi aday ' + ranked.length); });
+      }
       return scanP.then(function () {
         if (accs.length) { rankAll(); dbg.push('hesap sonrasi aday ' + ranked.length); }
+        return motorDogrula();
+      }).then(function () {
       if (!ranked.length) return debugStream('uygun video yok: ' + (info.title || info.original_title) + ' ' + year);
 
       // kesin Türkçe adaylar + (etiketsiz / sadece Dual) birkaç belirsiz aday: bunların ses parçası kontrol edilir
@@ -1363,7 +1416,7 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
       var top = sure.concat(unsure);
       var metas = top.map(function () { return null; });
       var metaJobs = top.map(function (x, i) {
-        return fetchMeta(x.item).then(function (m) { metas[i] = m; }, function () {});
+        return (x.item.metaHazir ? Promise.resolve(x.item.metaHazir) : fetchMeta(x.item)).then(function (m) { metas[i] = m; }, function () {});
       });
       var tMeta = Date.now();
       return waitWithin(metaJobs.slice(0, sure.length), AYAR.KAYNAK_SURESI)
@@ -1385,7 +1438,7 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
         });
         dbg.push('bitti ' + (Date.now() - T0) + 'ms');
         if (!streams.length) return debugStream('kaynak cikmadi');
-        return AYAR.DEBUG_MODU ? streams.concat(debugStream('akis bulundu: ' + streams.length)) : streams;   // debug açıkken satırlar akışların altında da görünür
+        return streams;
       });
       });
     });
@@ -1411,6 +1464,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
       if (done) return;
       done = true; clearTimeout(tmr); clearTimeout(grace);
       var extra = inner || (AYAR.DEBUG_MODU ? debugStream(why + ' garanti=' + g.length) : []);
+      var gercek = g.concat(extra).filter(function (s) { return s && s.url !== 'https://debug.invalid/'; });
+      if (gercek.length) { resolve(birlestir(g, extra.filter(function (s) { return s && s.url !== 'https://debug.invalid/'; }))); return; }   // gerçek akış varsa DEBUG satırları gösterilmez
       resolve(birlestir(g, AYAR.DEBUG_MODU ? extra.concat([{ name: 'DEBUG garanti akis: ' + g.length, title: 'DEBUG garanti akis: ' + g.length, url: 'https://debug.invalid/', quality: 'Auto', provider: PROVIDER_ID }]) : extra));
     }
     gp.then(function (gg) {
