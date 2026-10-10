@@ -1,12 +1,12 @@
 {
   "name": "okru",
-  "version": "1.0.9",
+  "version": "1.0.11",
   "scrapers": [
     {
       "id": "okru",
       "name": "ok.ru",
       "description": "ok.ru videoları, sadece Türkçe ses (TR / Türkçe Dublaj)",
-      "version": "1.0.9",
+      "version": "1.0.11",
       "filename": "providers/okru.js",
       "supportedTypes": ["movie"],
       "enabled": true
