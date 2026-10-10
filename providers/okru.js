@@ -10,6 +10,7 @@ var AYAR = {
   EKLENTI_ADI: 'ok.ru',
   // true iken akış çıkmazsa neden çıkmadığını yazan "DEBUG" satırları görünür. Her şey çalışınca false yap.
   // ok.ru'nun kendi arama/profil sayfaları artık boş JS kabuğu döndürüyor (v1.0.9: arama motorları + video sayfası metadata'sı ile doğrulama)
+  MOTOR_SORGU: 10,   // arama motorlarına en fazla kaç sorgu gitsin (Google+Yandex ilk 5, diğerleri ilk 2 sorguda)
   ARAMA_MOTORU: true,
   DEBUG_MODU: true,
   MAX_ADAY: 20,
@@ -28,6 +29,9 @@ var AYAR = {
     { tmdb: 1368, adlar: ['First Blood', 'Rambo First Blood', 'Rambo İlk Kan', 'İlk Kan'], yil: 1982, dosya: 'Ilk.Kan.ok2', id: '10001072654964' }
   ],
   ENGEL: [],
+  // Kişisel sayfa / grup / topluluk: ok.ru'nun kendi araması bu videoları göstermese bile buradan taranır.
+  // Sadece adres yaz: 'https://ok.ru/profile/NUMARA' ya da 'https://ok.ru/group/NUMARA' (otomatik /video, mobil m.ok.ru ve sayfa 2-3 de denenir).
+  KAYNAKLAR: [],
   HESAPLAR: ['https://ok.ru/profile/590041294398/video'],   // yükleyen hesap (sude can): video listesi aday olarak taranır
   // Bu hesabın herkese açık listesindeki videolar (ağ yanıt vermese de aday olarak girer; Türkçe kabul edilir)
   HESAP_KATALOG: [
@@ -38,8 +42,8 @@ var AYAR = {
   HESAP_SAYFA: 0,
   BELIRSIZ_GOSTER: true,  // dili doğrulanamayan adaylar "Dil ?" etiketiyle en sona eklensin
   MAX_BELIRSIZ: 12,
-  ARAMA_SURESI: 6500,  // ms
-  GENEL_SURE: 30000,    // ms
+  ARAMA_SURESI: 9000,  // ms
+  GENEL_SURE: 36000,    // ms
   KAYNAK_SURESI: 5000  // ms
 };
 
@@ -379,7 +383,7 @@ function getRaw(url, headers, label, opt) {
       return { status: 0, ok: false, text: '', cookie: '', err: (e && e.message) || 'hata' };
     }).then(function (r) { netRelease(); return r; });
   }).then(function (r) {
-    if (r.ok && label && /^[SHA]\d/.test(label)) { try { harvestIds(r.text).forEach(function (x) { HARVEST.push(x); }); } catch (e) {} }
+    if (r.ok && label && /^[SHA]\d/.test(label)) { try { var hv = harvestIds(r.text); hv.forEach(function (x) { HARVEST.push(x); }); if (AYAR.DEBUG_MODU && /^[HA]\d/.test(label)) dbg.push(label + ' harvest ' + hv.length); } catch (e) {} }
     if (label) dbg.push(label + ' ' + (r.status || r.err || '?') + '/' + r.text.length);
     return r;
   });
@@ -535,6 +539,7 @@ function splitTok(t, depth) {
 
 function analyze(title) {
   var raw = String(title || '')
+    .replace(/^\s*\d{1,3}\s*[.)\-–:]\s+/, '')                                 // "66. Alice Sweet Alice ...": liste sıra numarası film numarası değil
     .replace(/\s*[\(\[]\s*\d\s*[\)\]]\s*$/, '')                      // "Film (1)": kopya numarası
     .replace(/\bsayfa\s*\d+/gi, ' ')                               // "... - Sayfa 3" site sayfası, sıra numarası değil
     .replace(/(^|[^0-9])[257][.,][01](?![0-9])/g, '$1');             // ses düzeni 5.1 / 7.1 / 2.0 sıra numarası sanılmasın
@@ -901,8 +906,27 @@ function katalogItems() {
 }
 
 // Hesap sayfasını getir, bulunan videoları sink'e ekle
+// Hesap / grup / topluluk adresinden video listesi adresleri üret (masaüstü + mobil site + ek sayfalar)
+function kaynakUrls() {
+  var out = [];
+  (AYAR.HESAPLAR || []).concat(AYAR.KAYNAKLAR || []).forEach(function (u) {
+    u = String(u || '').trim();
+    if (!u) return;
+    out.push(u);
+    var m = u.match(/ok\.ru\/(profile|group)\/(\d+)/);
+    if (!m) return;
+    var base = '/' + m[1] + '/' + m[2];
+    out.push('https://ok.ru' + base + '/video');
+    out.push('https://m.ok.ru' + base + '/video');
+    out.push('https://m.ok.ru' + base + '/video?st.page=2');
+    out.push('https://m.ok.ru' + base + '/video?st.page=3');
+    out.push('https://ok.ru' + base);
+  });
+  return uniq(out);
+}
+
 function scanList(u, pages, sink, ai) {
-  return getRaw(u, null, 'A' + ai).then(function (r) {
+  return getRaw(u, null, 'A' + ai, { prio: true }).then(function (r) {
     var items = r.ok ? parseProfile(r.text) : [];
     if (r.ok) parseSearch(r.text).forEach(function (it) { it.guvenilir = true; items.push(it); });
     items.forEach(function (it) { sink.push(it); });
@@ -916,7 +940,9 @@ var SEARCH_URLS = [
   function (q) { return AYAR.SITE + '/video/showcase?st.v.sq=' + q; },
   function (q) { return AYAR.SITE + '/search?st.cmd=searchResult&st.mode=Movie&st.query=' + q; },
   function (q) { return AYAR.SITE + '/video/search?st.v.sq=' + q; },
-  function (q) { return AYAR.SITE + '/dk?st.cmd=searchResult&st.mode=Movie&st.query=' + q; }
+  function (q) { return AYAR.SITE + '/dk?st.cmd=searchResult&st.mode=Movie&st.query=' + q; },
+  function (q) { return 'https://m.ok.ru/video/search?st.v.sq=' + q; },
+  function (q) { return 'https://m.ok.ru/search?st.cmd=searchResult&st.mode=Movie&st.query=' + q; }
 ];
 
 var UA_MASAUSTU = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -925,7 +951,7 @@ function searchOnce(q, tag, pages, sink) {
   var enc = encodeURIComponent(q);
   // ilk 3 sorguda birkaç yöntem denenir, diğerlerinde sadece ilk yöntem (hız)
   var tries = tag <= 3
-    ? [[3, true], [0, false], [4, true], [1, true], [5, true], [2, true]]
+    ? [[3, true], [0, false], [4, true], [1, true], [5, true], [2, true], [6, false], [7, false]]
     : [[3, true]];
   var i = 0;
   function next() {
@@ -954,33 +980,70 @@ function searchOnce(q, tag, pages, sink) {
   return next();
 }
 
-// ---------------- Arama motorları (ok.ru kendi aramasında boş kabuk döndürdüğü için) ----------------
-// "site:ok.ru/video <ad> <yıl>" aratılır, çıkan ok.ru video numaraları aday olur; gerçek başlık ve süre
-// video sayfasının metadata'sından okunup puanlamaya sokulur (arama sonucundaki başlığa güvenilmez).
-function engineUrls(q) {
-  var e = encodeURIComponent('site:ok.ru/video ' + q);
-  return [
-    'https://html.duckduckgo.com/html/?q=' + e + '&kl=tr-tr',
-    'https://www.bing.com/search?q=' + e + '&setlang=tr&count=30',
-    'https://search.brave.com/search?q=' + e + '&source=web'
-  ];
+// ---------------- Arama motorları: Google / Yandex / DuckDuckGo / Bing / Brave ----------------
+// ok.ru'nun kendi araması boş kabuk döndürüyor / bazı videoları hiç göstermiyor. Arama motorlarından ok.ru video numaraları toplanır;
+// gerçek başlık ve süre video sayfası metadata'sından okunup puanlamaya sokulur.
+
+var UA_ENGINE = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+// Arama motoru sorguları: ad (Türkçe / orijinal / İngilizce) + yıl + "tr", "türkçe dublaj", "tr dublaj", site adı ...
+function engineQueries(host, titles, trTitles, year) {
+  var hw = host.replace(/^my\./, ''), y = year ? ' ' + year : '';
+  function clean(s) { return String(s || '').replace(/[:!?,"]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+  var tr1 = clean((trTitles || [])[0]), t0 = clean((titles || [])[0]), t1 = clean((titles || [])[1]);
+  var names = uniq([tr1, t0, t1].filter(Boolean)).slice(0, 3), qs = [];
+  names.forEach(function (n) { qs.push(n + y + ' tr ' + hw); qs.push(n + y + ' türkçe dublaj ' + hw); });
+  names.forEach(function (n) { qs.push(n + ' tr dublaj ' + hw); qs.push('site:' + host + ' ' + n + y); qs.push(n + y + ' ' + hw); });
+  if (names[0]) qs.push(names[0] + ' 1080p tr ' + hw);
+  var fw = firstWordOf(t0 || tr1);
+  if (fw) { qs.push(fw + y + ' tr ' + hw); qs.push(fw + ' dublaj ' + hw); }
+  return uniq(qs).slice(0, AYAR.MOTOR_SORGU || 10);
 }
+
+// Google + Yandex (ilk 5 sorgu), DuckDuckGo + Bing + Brave (ilk 2 sorgu)
+function engineUrls(q, wide, narrow) {
+  var e = encodeURIComponent(q), out = [];
+  if (wide) {
+    out.push('https://www.google.com/search?q=' + e + '&hl=tr&num=30&gbv=1');
+    out.push('https://www.google.com/search?tbm=vid&q=' + e + '&hl=tr&num=30');
+    out.push('https://yandex.com.tr/search/?text=' + e);
+    out.push('https://yandex.com/search/?text=' + e);
+  }
+  if (narrow) {
+    out.push('https://html.duckduckgo.com/html/?q=' + e + '&kl=tr-tr');
+    out.push('https://www.bing.com/search?q=' + e + '&setlang=tr&count=30');
+    out.push('https://search.brave.com/search?q=' + e + '&source=web');
+  }
+  return out;
+}
+function engineHeaders(u) {
+  var h = pageHeaders({ 'User-Agent': UA_ENGINE, 'Referer': 'https://www.google.com/', 'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8' });
+  if (/google\./.test(u)) h['Cookie'] = 'CONSENT=YES+cb; SOCS=CAI';
+  return h;
+}
+function engineNorm(h) { return String(h || '').replace(/%252F/gi, '/').replace(/%2F/gi, '/').replace(/%3A/gi, ':').replace(/&amp;/g, '&').replace(/\\\//g, '/'); }
+function engineRun(queries, parse, sink, fetcher) {
+  var jobs = [];
+  queries.forEach(function (q, qi) {
+    engineUrls(q, qi < 5, qi < 2).forEach(function (u, ui) {
+      jobs.push(fetcher(u, 'E' + (qi + 1) + '.' + ui).then(function (r) {
+        var items = r.ok ? parse(r.text) : [];
+        items.forEach(function (it) { sink.push(it); });
+      }, function () {}));
+    });
+  });
+  return Promise.all(jobs);
+}
+
 function parseEngine(html) {
-  var out = [], seen = {}, m, re = /ok\.ru(?:\/|%2F|%252F)video(?:embed)?(?:\/|%2F|%252F)(\d{8,})/gi;
-  html = String(html || '');
+  var out = [], seen = {}, m, re = /ok\.ru\/video(?:embed)?\/(\d{8,})/gi;
+  html = engineNorm(html);
   while ((m = re.exec(html)) !== null) {
     if (!seen[m[1]]) { seen[m[1]] = 1; out.push({ path: '/video/' + m[1], id: m[1], title: '', durText: '', dur: 0 }); }
   }
   return out;
 }
-function engineSearch(q, qi, sink) {
-  return Promise.all(engineUrls(q).map(function (u, ui) {
-    return getRaw(u, pageHeaders({ 'User-Agent': UA_MASAUSTU, 'Referer': 'https://www.google.com/' }), 'E' + qi + '.' + ui, { timeout: 6000 }).then(function (r) {
-      var items = r.ok ? parseEngine(r.text) : [];
-      items.forEach(function (it) { sink.push(it); });
-    }, function () {});
-  }));
-}
+function engineFetch(u, lbl) { return getRaw(u, engineHeaders(u), lbl, { timeout: 7000, prio: true }); }
 
 // ---------------- Video kaynağı ----------------
 
@@ -1284,7 +1347,7 @@ function garantiAkislar(girdiler) {
 function getStreamsInner(tmdbId, mediaType, season, episode) {
   if (mediaType !== 'movie') return Promise.resolve([]);
   var gIds = garantiGirdileri(tmdbId, mediaType).map(function (e) { return String(e.id); });   // garanti yolu zaten bunları çekiyor
-  dbg = ['okru v1.0.11'];
+  dbg = ['okru v1.0.13'];
   var T0 = Date.now();
   var base = 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
 
@@ -1345,15 +1408,11 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
       var pages = (q === mainQ || /^\d{4} /.test(q)) ? 2 : (i < 4 ? AYAR.MAX_SAYFA : 0);   // sadece-ad sorgusu en çok sayfa okur
       return searchOnce(q, i + 1, pages, sinks[i]);
     });
-    if (AYAR.ARAMA_MOTORU) {
-      var eMain = (trWants[0] || titles[0] || '').replace(/\s+/g, ' ').trim(), eEn = (titles[0] || '').replace(/\s+/g, ' ').trim(), yy = year ? ' ' + year : '';
-      uniq([eMain + yy, eMain + ' Türkçe Dublaj' + yy, eEn + yy + ' TR']).filter(function (q) { return q.trim().length >= 3; }).slice(0, 3)
-        .forEach(function (q, qi) { jobs.push(engineSearch(q, qi + 1, engSink)); });
-    }
-    (AYAR.HESAPLAR || []).forEach(function (u, hi) {                       // yükleyen hesabın tüm listesi
+    if (AYAR.ARAMA_MOTORU) jobs.push(engineRun(engineQueries('ok.ru', titles, trWants, year), parseEngine, engSink, engineFetch));
+    kaynakUrls().forEach(function (u, hi) {                       // yükleyen hesabın tüm listesi
       var hs = [];
       sinks.push(hs);
-      jobs.push(getRaw(u, null, 'H' + hi).then(function (r) {
+      jobs.push(getRaw(u, null, 'H' + hi, { prio: true }).then(function (r) {
         var items = r.ok ? parseProfile(r.text) : [];
         if (r.ok) parseSearch(r.text).forEach(function (it) { it.guvenilir = true; items.push(it); });
         hs.push.apply(hs, items);
@@ -1398,7 +1457,7 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
 
       // Arama dosyayı getirmediyse: yükleyen hesabın kendi video listesini tara (garanti listesi ya da hiç aday yoksa)
       var needScan = !ranked.length || (ctx.manuel.length && !ranked.some(function (x) { return x.r.score === 999; }));
-      var accs = needScan ? uniq((AYAR.HESAPLAR || []).concat(accountsOf(all).map(function (a) { return AYAR.MOBILE + a; }))) : [];
+      var accs = needScan ? uniq(kaynakUrls().concat(accountsOf(all).map(function (a) { return AYAR.MOBILE + a; }))) : [];
       var scanP = accs.length ? waitWithin(accs.map(function (u, ai) {
         var hs = [];
         return scanList(u, AYAR.HESAP_SAYFA, hs, ai).then(function () {
@@ -1412,14 +1471,14 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
         var cands = [], sn = {};
         engSink.forEach(function (it) { if (!seen[it.path] && !sn[it.path]) { sn[it.path] = 1; cands.push(it); } });
         dbg.push('motor aday ' + cands.length);
-        return waitWithin(cands.slice(0, 24).map(function (it) {
+        return waitWithin(cands.slice(0, 40).map(function (it) {
           return fetchMeta(it).then(function (m) {
             if (!m) return;
             if (!m.title) { dbg.push('motor baslik yok ' + it.id); return; }
             seen[it.path] = true;
             all.push({ path: it.path, id: it.id, title: m.title, durText: '', dur: m.dur, desc: m.desc, metaHazir: m });
           }, function () {});
-        }), 8000).then(function () { rankAll(); dbg.push('motor sonrasi aday ' + ranked.length); });
+        }), 9000).then(function () { rankAll(); dbg.push('motor sonrasi aday ' + ranked.length); });
       }
       return scanP.then(function () {
         if (accs.length) { rankAll(); dbg.push('hesap sonrasi aday ' + ranked.length); }
