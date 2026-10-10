@@ -14,8 +14,9 @@ var AYAR = {
   MAX_SORGU: 16,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
   MAX_SAYFA: 0,
   ONEKLER: [],
-  MANUEL: [        // { adlar: ['Film Adı'], yil: 2000, dosya: 'sitedeki.tam.baslik', id: 'ok.ru video numarası (varsa doğrudan eklenir, arama gerekmez)' }
-    { adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984-Filmsarayi.net', id: '1189269146174' }
+  MANUEL: [        // { tmdb: 123, adlar: ['Film Adı'], yil: 2000, dosya: 'sitedeki.tam.baslik', id: 'ok.ru video numarası' }
+                   // tmdb + id varsa: arama/TMDB beklenmeden, bağımsız ve tekrar denemeli şekilde KESİN eklenir
+    { tmdb: 218, adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984-Filmsarayi.net', id: '1189269146174' }
   ],
   ENGEL: [],
   HESAPLAR: [],
@@ -863,8 +864,8 @@ function searchOnce(q, tag, pages, sink) {
 
 var OK_KALITE = { ultra: 2160, quad: 1440, full: 1080, hd: 720, sd: 480, low: 360, lowest: 240, mobile: 144 };
 
-function fetchMeta(item) {
-  return getRaw(AYAR.SITE + '/video/' + item.id, pageHeaders(), 'V' + String(item.id).slice(-4)).then(function (r) {
+function fetchMeta(item, masaustu) {
+  return getRaw(AYAR.SITE + '/video/' + item.id, masaustu ? pageHeaders({ 'User-Agent': UA_MASAUSTU }) : pageHeaders(), 'V' + String(item.id).slice(-4)).then(function (r) {
     var html = r.text || '', attrs = [], re = /data-options="([^"]+)"/g, m;
     while ((m = re.exec(html)) !== null) attrs.push(m[1]);
     for (var i = 0; i < attrs.length; i++) {
@@ -1047,9 +1048,64 @@ function buildQueries(imdb, year, titles, trTitles) {
     .slice(0, AYAR.MAX_SORGU);
 }
 
+
+// ---------------- GARANTİ (kesin) akış ----------------
+// tmdb + id verilen filmler: TMDB'yi, aramayı, puanlamayı BEKLEMEDEN doğrudan video sayfasından çekilir.
+// Hızlı hata/yavaş yanıt için 3 deneme (2.5 sn arayla, biri masaüstü UA ile), son başarılı sonuç da önbellekte tutulur.
+var GARANTI_ONBELLEK = {};
+
+function garantiGirdileri(tmdbId, mediaType) {
+  if (mediaType !== 'movie') return [];
+  return (AYAR.MANUEL || []).filter(function (e) {
+    return e && e.id && e.tmdb && String(e.tmdb) === String(tmdbId);
+  });
+}
+
+function garantiMeta(id) {
+  id = String(id);
+  var c = GARANTI_ONBELLEK[id];
+  if (c && Date.now() - c.t < 10 * 60 * 1000) return Promise.resolve(c.meta);   // 10 dk içindeki taze sonuç
+  return new Promise(function (resolve) {
+    var bitti = false, basladi = 0, bitenler = 0, timers = [];
+    function son(m) {
+      if (bitti) return;
+      bitti = true;
+      timers.forEach(clearTimeout);
+      if (m) GARANTI_ONBELLEK[id] = { t: Date.now(), meta: m };
+      resolve(m || (c ? c.meta : null));   // hepsi başarısızsa son bilinen sonuç
+    }
+    function sonraki() {
+      if (bitti || basladi >= 3) return;
+      var n = basladi++;
+      fetchMeta({ id: id }, n === 1).then(function (m) { return m; }, function () { return null; }).then(function (m) {
+        bitenler++;
+        if (m) son(m);
+        else if (bitenler >= 3) son(null);
+        else sonraki();                   // başarısızsa hemen sıradaki deneme
+      });
+    }
+    sonraki();
+    timers.push(setTimeout(sonraki, 2500));   // yavaşsa paralel ikinci deneme
+    timers.push(setTimeout(sonraki, 5000));
+    timers.push(setTimeout(function () { son(null); }, 9500));
+  });
+}
+
+function garantiAkislar(girdiler) {
+  return Promise.all(girdiler.map(function (e) {
+    return garantiMeta(e.id).then(function (meta) {
+      if (!meta) { dbg.push('garanti meta yok ' + e.id); return []; }
+      return makeStreams({ id: String(e.id), title: e.dosya, dur: 0 }, { lang: 'TR', info: {} }, meta);
+    }, function () { return []; });
+  })).then(function (lists) {
+    return lists.reduce(function (a, l) { return a.concat(l); }, []);
+  });
+}
+
 function getStreamsInner(tmdbId, mediaType, season, episode) {
   if (mediaType !== 'movie') return Promise.resolve([]);
-  dbg = ['okru v1.0.5'];
+  var gIds = garantiGirdileri(tmdbId, mediaType).map(function (e) { return String(e.id); });   // garanti yolu zaten bunları çekiyor
+  dbg = ['okru v1.0.6'];
   var T0 = Date.now();
   var base = 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
 
@@ -1094,6 +1150,7 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
       if (!e || !e.dosya || (e.yil && year && e.yil !== year)) return;
       var hit = (e.adlar || []).some(function (a) { return wants.some(function (w) { return norm(w) === norm(a); }); });
       if (!hit) return;
+      if (e.id && gIds.indexOf(String(e.id)) > -1) return;                 // garanti yolu çekiyor, burada tekrar yok
       ctx.manuel.push(norm(e.dosya));
       if (e.id) { direkt.push({ id: String(e.id), title: e.dosya }); return; }   // numarası belli: arama yapmadan doğrudan ekle
       manuelQs.push(e.dosya);
@@ -1127,6 +1184,7 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
         seen[pth] = true;
         all.unshift({ path: pth, id: d.id, durText: '', dur: 0, title: d.title });
       });
+      if (gIds.length) all = all.filter(function (it) { return gIds.indexOf(String(it.id)) === -1; });   // aynı videoyu iki kez çekme
       dbg.push('sonuc ' + all.length + ' ' + (Date.now() - T0) + 'ms');
       if (AYAR.DEBUG_MODU) {
         dbg.push('sorgu sayilari ' + sinks.slice(0, queries.length).map(function (l) { return l.length; }).join(','));
@@ -1199,18 +1257,34 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
   }).catch(function (e) { return debugStream('hata ' + (e && e.message)); });
 }
 
-// Nuvio'nun süre sınırına takılmamak için genel üst sınır
+// Nuvio'nun süre sınırına takılmamak için genel üst sınır.
+// Garanti akışlar normal aramadan BAĞIMSIZ çalışır: arama/TMDB yavaşlasa, hata verse ya da zaman aşımına girse bile
+// garanti video her zaman sonuca eklenir (en başa).
 function getStreams(tmdbId, mediaType, season, episode) {
+  var gp = garantiAkislar(garantiGirdileri(tmdbId, mediaType)).catch(function () { return []; });
+  function birlestir(g, d) {
+    var out = [], seen = {};
+    g.concat(d || []).forEach(function (s) {
+      if (!s || (s.url !== 'https://debug.invalid/' && seen[s.url])) return;
+      seen[s.url] = true; out.push(s);
+    });
+    return out;
+  }
   return new Promise(function (resolve) {
     var done = false;
     var timer = setTimeout(function () {
-      if (!done) { done = true; resolve(debugStream('zaman asimi ' + AYAR.GENEL_SURE + 'ms')); }
+      if (done) return;
+      done = true;
+      gp.then(function (g) { resolve(birlestir(g, debugStream('zaman asimi ' + AYAR.GENEL_SURE + 'ms'))); });
     }, AYAR.GENEL_SURE);
-    getStreamsInner(tmdbId, mediaType, season, episode).then(function (r) {
-      if (!done) { done = true; clearTimeout(timer); resolve(r); }
-    }, function () {
-      if (!done) { done = true; clearTimeout(timer); resolve([]); }
-    });
+    getStreamsInner(tmdbId, mediaType, season, episode).then(function (r) { return r; }, function () { return []; })
+      .then(function (r) {
+        return gp.then(function (g) {
+          if (done) return;
+          done = true; clearTimeout(timer);
+          resolve(birlestir(g, r));
+        });
+      });
   });
 }
 
