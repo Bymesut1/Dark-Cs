@@ -12,8 +12,9 @@ var AYAR = {
   // ok.ru'nun kendi arama/profil sayfaları artık boş JS kabuğu döndürüyor (v1.0.9: arama motorları + video sayfası metadata'sı ile doğrulama)
   ARAMA_MOTORU: true,
   DEBUG_MODU: true,
-  MAX_ADAY: 8,     // en fazla kaç aday video için kaynak çekilsin
-  MAX_SORGU: 3,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
+  MAX_ADAY: 20,
+  MIN_SURE: 300,   // sn: bundan kısa videolar (fragman/kesit) hariç; süre uyumu ARANMAZ. 0 yaparsan hiç eleme olmaz     // en fazla kaç aday video için kaynak çekilsin
+  MAX_SORGU: 6,   // en fazla kaç arama yapılsın (öncelik sırasıyla)
   MAX_SAYFA: 0,
   ONEKLER: [],
   MANUEL: [        // { tmdb: 123, adlar: ['Film Adı'], yil: 2000, dosya: 'sitedeki.tam.baslik', id: 'ok.ru video numarası' }
@@ -21,7 +22,10 @@ var AYAR = {
     // tmdb 218 = The Terminator (1984). Aynı filme birden çok dosya verilebilir; ayakta olan hepsi listelenir.
     { tmdb: 218, adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984.TR.1080p', id: '1766021532169' },
     { tmdb: 218, adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984.1080p.BluRay.x264.TR', id: '1050987137588' },
-    { tmdb: 218, adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984-Filmsarayi.net', id: '1189269146174' }
+    { tmdb: 218, adlar: ['The Terminator', 'Terminator', 'Terminatör'], yil: 1984, dosya: 'Terminator.1.1984-Filmsarayi.net', id: '1189269146174' },
+    // tmdb 1368 = First Blood / Rambo İlk Kan (1982)
+    { tmdb: 1368, adlar: ['First Blood', 'Rambo First Blood', 'Rambo İlk Kan', 'İlk Kan'], yil: 1982, dosya: 'Rambo.Ilk.Kan.Beyaz.TV', id: '11402194193016' },
+    { tmdb: 1368, adlar: ['First Blood', 'Rambo First Blood', 'Rambo İlk Kan', 'İlk Kan'], yil: 1982, dosya: 'Ilk.Kan.ok2', id: '10001072654964' }
   ],
   ENGEL: [],
   HESAPLAR: ['https://ok.ru/profile/590041294398/video'],   // yükleyen hesap (sude can): video listesi aday olarak taranır
@@ -33,9 +37,9 @@ var AYAR = {
   PARALEL: 6,          // aynı anda en fazla kaç arama/liste isteği (yavaş ağda zaman aşımını önler)
   HESAP_SAYFA: 0,
   BELIRSIZ_GOSTER: true,  // dili doğrulanamayan adaylar "Dil ?" etiketiyle en sona eklensin
-  MAX_BELIRSIZ: 5,
+  MAX_BELIRSIZ: 12,
   ARAMA_SURESI: 6500,  // ms
-  GENEL_SURE: 24000,    // ms
+  GENEL_SURE: 30000,    // ms
   KAYNAK_SURESI: 5000  // ms
 };
 
@@ -172,7 +176,7 @@ var TR_ALIAS_EK = [
   ['Lethal Weapon', ['Ölümcül Silah']],
   ['Lethal Weapon 2', ['Ölümcül Silah 2']],
   ['Lethal Weapon 3', ['Ölümcül Silah 3']],
-  ['First Blood', ['Rambo İlk Kan', 'Rambo 1']],
+  ['First Blood', ['Rambo İlk Kan', 'Rambo 1', 'İlk Kan', 'Rambo First Blood']],
   ['Con Air', ['Kaçış Uçağı']],
   ['The Rock', ['Kaya']],
   ['Raiders of the Lost Ark', ['Kayıp Hazine Avcıları', 'Indiana Jones Kayıp Hazine Avcıları']],
@@ -375,6 +379,7 @@ function getRaw(url, headers, label, opt) {
       return { status: 0, ok: false, text: '', cookie: '', err: (e && e.message) || 'hata' };
     }).then(function (r) { netRelease(); return r; });
   }).then(function (r) {
+    if (r.ok && label && /^[SHA]\d/.test(label)) { try { harvestIds(r.text).forEach(function (x) { HARVEST.push(x); }); } catch (e) {} }
     if (label) dbg.push(label + ' ' + (r.status || r.err || '?') + '/' + r.text.length);
     return r;
   });
@@ -508,6 +513,9 @@ function splitTok(t, depth) {
       t.match(/^(tr|trdub|trdublaj|dublaj|dual|turkce)(\d{1,2})$/) ||
       t.match(/^(\d{3,4}p?|tr|dublaj|dublajli|turkce|hd|full|film|tek|parca|bolum)(izle)$/);
   if (m) return [m[1], m[2]];
+  m = t.match(/^(mp4|mkv|avi|dvd|dvdrip|bluray|brrip|webrip|hd|full|mpv|mov|m4v)(tr|dublaj|dual)$/) ||
+      t.match(/^(tr|dublaj|dual)(mp4|mkv|avi|dvd|dvdrip|bluray|brrip|webrip|hd|mpv|mov|m4v)$/);
+  if (m) return [m[1], m[2]];
   m = t.match(/^(tr|en|eng)(sub|subs|altyazi)$/);                          // "TRSub" = Türkçe ALTYAZI (ses Türkçe değil)
   if (m) return [m[1], 'sub'];
   m = t.match(/^(\d{4,7})([a-z]{3,})$/);
@@ -593,7 +601,7 @@ function nameMatch(info, wants) {
       continue;
     }
     // kısa başlıklar ("Up", "It"): dosya adı başka kelimelerle dolu ise başka film olabilir
-    if (ww.length <= 2 && info.words.length > ww.length * 3) continue;
+    if (ww.length === 1 && ww[0].length <= 2 && info.words.length > 3) continue;   // sadece 'Up', 'It' gibi 2 harflik adlar
     // sıra numarası çakışıyorsa (Taken 2 / Taken 3) reddet
     if (sw.nums.length && info.nums.length) {
       var common = sw.nums.some(function (n) { return info.nums.indexOf(n) > -1; });
@@ -743,36 +751,27 @@ function rankItem(item, ctx) {
     else if (!imdbOk) {                                                   // farklı yıl = devam filmi/başka film ...
       // ... ama ad BİREBİR, sıra numarası aynı, süre ±%20 ve yıl en fazla 8 fark ise yükleyen yılı yanlış yazmıştır
       //     (Harbi.Define.2010, Zorro.2.2008)
-      var relax = nameOk && yd <= 8 && item.dur && ctx.runtime &&
-                  Math.abs(item.dur / (ctx.runtime * 60) - 1) <= 0.2 && exactTitle(info, ctx.wants);
+      var relax = nameOk && yd <= 15 &&
+                  true && exactTitle(info, ctx.wants);
       if (!relax) return null;
       score += 20;
     }
     else score -= 10;
   }
 
+  // Süre artık ELEME nedeni değil (sadece çok kısa fragman/kesitler ve puan bonusu)
   if (item.dur) {
+    if (item.dur < (AYAR.MIN_SURE || 0)) return null;
     if (ctx.runtime) {
       var r = item.dur / (ctx.runtime * 60), d = Math.abs(r - 1);
-      if (loose && d > 0.06) return null;
-      if (d <= 0.06) score += 25;
-      else if (d <= 0.15) score += 10;
-      else if (d <= 0.3) score += 0;                                      // uzatılmış/kısaltılmış kurgu
-      else if (info.part && r >= 0.25 && r <= 0.75) score += 0;           // CD1/CD2 parçası
-      else return null;                                                   // fragman, kesit, özet
-    } else if (item.dur < 1500) {
-      return null;
-    }
-  }
-
-  if (loose) {                                                         // zayıf eşleşme: süre ŞART; yıl yoksa süre ±%3
-    if (!item.dur) return null;
-    if (!info.years.length) {
-      var r0 = ctx.runtime ? Math.abs(item.dur / (ctx.runtime * 60) - 1) : 1;
-      if (r0 > 0.03) return null;
+      if (d <= 0.06) score += 25; else if (d <= 0.15) score += 10;
     }
   }
   var li = langInfo(info);
+  if (!li.ok && item.desc) {                                           // açıklamada TR / Türkçe Dublaj yazıyorsa Türkçe say
+    var li2 = langInfo(analyze(String(item.desc).slice(0, 400)));
+    if (li2.ok && li2.tier === 0) li = li2;
+  }
   if (/[\u0400-\u04FF]/.test(item.title) && !li.ok) return null;       // Rusça (Kiril) başlık
   if (!li.ok && ctx.trFilm && !li.foreign) li = { label: 'TR Yerli', tier: 0, ok: true };   // yerli Türk filmi: ses zaten Türkçe
   var maybe = false;
@@ -784,7 +783,7 @@ function rankItem(item, ctx) {
       // Etiket yok ama Türkçe adla ya da Türkçe harflerle yazılmış: Türkçe say
       // (yıl yoksa süre ±%8 içinde olmalı; başka filmle karışmasın)
       var rr = (ctx.runtime && item.dur) ? Math.abs(item.dur / (ctx.runtime * 60) - 1) : 1;
-      if (!imdbOk && !info.years.length && rr > 0.08) return null;
+      
       li = { label: trChars ? 'TR Yazı' : 'TR Ad', tier: 1, ok: true };
     } else if (clean && (li.label === '?' || li.label === 'Dual') && (imdbOk || nameOk || tight)) {
       maybe = true;                                                      // ses parçası meta bilgisinden doğrulanacak
@@ -793,7 +792,7 @@ function rankItem(item, ctx) {
   }
   if (info.res >= 2160) score += 4; else if (info.res >= 1080) score += 3; else if (info.res >= 720) score += 2;
 
-  if (score < 40) return null;
+  if (score < ((nameOk || imdbOk) ? 20 : 40)) return null;
   return { score: score, info: info, lang: li.label, tier: li.tier, maybe: maybe };
 }
 
@@ -849,6 +848,21 @@ function parseSearch(html) {
     var re4 = /href="(?:https?:\/\/ok\.ru)?\/video\/(\d{8,})[^"]*"[^>]*>\s*([^<]{3,150})</g, m4;
     while ((m4 = re4.exec(html)) !== null) add({ id: m4[1], title: m4[2] });
   }
+  return out;
+}
+
+// Sayfa kabuğunda (JSON içinde kaçışlı \/video\/123.. ya da movieId alanları) gizli video numaralarını topla.
+// Başlığa güvenilmez: numaralar video sayfası metadata'sından doğrulanır.
+var HARVEST = [];
+function harvestIds(html) {
+  var h = decodeHtml(String(html || '')), out = [], seen = {}, m;
+  function add(id) { if (!seen[id]) { seen[id] = 1; out.push({ path: '/video/' + id, id: id, title: '', durText: '', dur: 0 }); } }
+  var r1 = /\\?\/video(?:embed)?\\?\/(\d{8,})/g;
+  while ((m = r1.exec(h)) !== null) add(m[1]);
+  var r2 = /"(?:movieId|videoId|mvId|movie_id|video_id|vid)"\s*:\s*"?(\d{8,})/g;
+  while ((m = r2.exec(h)) !== null) add(m[1]);
+  var r3 = /st\.(?:mvId|vid)=(\d{8,})/g;
+  while ((m = r3.exec(h)) !== null) add(m[1]);
   return out;
 }
 
@@ -927,6 +941,8 @@ function searchOnce(q, tag, pages, sink) {
         if (tag === 1 && i <= 2) {
           var tags = (tx.match(/<[a-z0-9-]+[^>]{0,200}data-props=/g) || []).slice(0, 5).map(function (x) { return x.match(/<([a-z0-9-]+)/)[1]; }).join(',');
           dbg.push('q1.' + i + ' tag: ' + tags + ' | title: ' + ((tx.match(/<title>([^<]{0,60})/) || [])[1] || '-'));
+          var pm = tx.match(/data-props="([^"]{0,400})/);
+          dbg.push('q1.' + i + ' props: ' + (pm ? decodeHtml(pm[1]).slice(0, 160) : '-'));
           var vi = tx.search(/\/video\/\d{8,}/);
           if (vi > -1) dbg.push('q1.' + i + ' ornek: ' + tx.slice(Math.max(0, vi - 40), vi + 90).replace(/\s+/g, ' '));
         }
@@ -979,7 +995,7 @@ function buildMeta(md) {
   var hls = md.hlsManifestUrl || md.hlsMasterPlaylistUrl || md.ondemandHls || '';
   if (!vids.length && !hls) return null;
   var mv = (md.movie && typeof md.movie === 'object') ? md.movie : {};
-  return { videos: vids, hls: hls, cookie: '', meta: md, raw: md, title: String(mv.title || md.title || ''), dur: parseInt(mv.duration || md.duration, 10) || 0 };
+  return { videos: vids, hls: hls, cookie: '', meta: md, raw: md, desc: String(mv.description || mv.descr || md.description || '').slice(0, 400), title: String(mv.title || md.title || ''), dur: parseInt(mv.duration || md.duration, 10) || 0 };
 }
 
 function metaFromHtml(html) {
@@ -1268,7 +1284,7 @@ function garantiAkislar(girdiler) {
 function getStreamsInner(tmdbId, mediaType, season, episode) {
   if (mediaType !== 'movie') return Promise.resolve([]);
   var gIds = garantiGirdileri(tmdbId, mediaType).map(function (e) { return String(e.id); });   // garanti yolu zaten bunları çekiyor
-  dbg = ['okru v1.0.9'];
+  dbg = ['okru v1.0.11'];
   var T0 = Date.now();
   var base = 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
 
@@ -1301,6 +1317,8 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
     dbg.push('film ' + (info.original_title || info.title) + ' ' + year + ' ' + (ctx.imdb || '-') + ' ' + ctx.runtime + 'dk');
 
     var queries = buildQueries(ctx.imdb, year, titles, trWants);
+    var engSink = [];
+    HARVEST = engSink;
     ctx.manuel = [];
     ctx.engel = [];
     (AYAR.ENGEL || []).forEach(function (e) {
@@ -1327,7 +1345,6 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
       var pages = (q === mainQ || /^\d{4} /.test(q)) ? 2 : (i < 4 ? AYAR.MAX_SAYFA : 0);   // sadece-ad sorgusu en çok sayfa okur
       return searchOnce(q, i + 1, pages, sinks[i]);
     });
-    var engSink = [];
     if (AYAR.ARAMA_MOTORU) {
       var eMain = (trWants[0] || titles[0] || '').replace(/\s+/g, ' ').trim(), eEn = (titles[0] || '').replace(/\s+/g, ' ').trim(), yy = year ? ' ' + year : '';
       uniq([eMain + yy, eMain + ' Türkçe Dublaj' + yy, eEn + yy + ' TR']).filter(function (q) { return q.trim().length >= 3; }).slice(0, 3)
@@ -1391,18 +1408,18 @@ function getStreamsInner(tmdbId, mediaType, season, episode) {
         });
       }), 3800) : Promise.resolve();
       function motorDogrula() {
-        if (ranked.some(function (x) { return !x.r.maybe; }) || !engSink.length) return Promise.resolve();
+        if (!engSink.length) return Promise.resolve();
         var cands = [], sn = {};
         engSink.forEach(function (it) { if (!seen[it.path] && !sn[it.path]) { sn[it.path] = 1; cands.push(it); } });
         dbg.push('motor aday ' + cands.length);
-        return waitWithin(cands.slice(0, 8).map(function (it) {
+        return waitWithin(cands.slice(0, 24).map(function (it) {
           return fetchMeta(it).then(function (m) {
             if (!m) return;
             if (!m.title) { dbg.push('motor baslik yok ' + it.id); return; }
             seen[it.path] = true;
-            all.push({ path: it.path, id: it.id, title: m.title, durText: '', dur: m.dur, metaHazir: m });
+            all.push({ path: it.path, id: it.id, title: m.title, durText: '', dur: m.dur, desc: m.desc, metaHazir: m });
           }, function () {});
-        }), 7000).then(function () { rankAll(); dbg.push('motor sonrasi aday ' + ranked.length); });
+        }), 8000).then(function () { rankAll(); dbg.push('motor sonrasi aday ' + ranked.length); });
       }
       return scanP.then(function () {
         if (accs.length) { rankAll(); dbg.push('hesap sonrasi aday ' + ranked.length); }
@@ -1470,7 +1487,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     }
     gp.then(function (gg) {
       g = gg;
-      if (gg.length && !done) grace = setTimeout(function () { finish('arama beklenmedi'); }, 2500);
+      if (gg.length && !done) grace = setTimeout(function () { finish('arama beklenmedi'); }, 14000);
       else if (innerReady) finish('bitti');
     });
     var innerReady = false;
